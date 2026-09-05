@@ -1,0 +1,10 @@
+create index training_days_user_fk_idx on public.training_days (user_id);
+create index training_days_plan_user_fk_idx on public.training_days (plan_id, user_id);
+create index exercises_user_fk_idx on public.exercises (user_id);
+create index exercises_day_user_fk_idx on public.exercises (training_day_id, user_id);
+create index workout_sessions_plan_user_fk_idx on public.workout_sessions (training_plan_id, user_id);
+create index workout_sessions_day_user_fk_idx on public.workout_sessions (training_day_id, user_id);
+create index workout_sets_user_fk_idx on public.workout_sets (user_id);
+create index workout_sets_session_user_fk_idx on public.workout_sets (session_id, user_id);
+create index workout_sets_exercise_user_fk_idx on public.workout_sets (exercise_id, user_id);
+create index food_entries_meal_user_fk_idx on public.food_entries (meal_slot_id, user_id);
