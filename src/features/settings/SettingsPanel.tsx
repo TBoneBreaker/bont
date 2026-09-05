@@ -11,12 +11,14 @@ export function SettingsPanel({
   open,
   profile,
   online,
+  demo = false,
   onClose,
   onSignedOut,
 }: {
   open: boolean
   profile: Profile
   online: boolean
+  demo?: boolean
   onClose: () => void
   onSignedOut: () => void
 }) {
@@ -39,6 +41,10 @@ export function SettingsPanel({
   }
 
   async function logout() {
+    if (demo) {
+      window.location.assign('/')
+      return
+    }
     setLoggingOut(true)
     if (online) {
       const result = await syncUser(profile.user_id)
@@ -64,10 +70,10 @@ export function SettingsPanel({
   return (
     <>
       <Modal open={open && !editingProfile} title="Einstellungen" onClose={onClose}>
-        <Card className="stack">
+        {!demo && <Card className="stack">
           <div className="row"><div className="feature-icon"><UserRound size={21} /></div><div><strong>{profile.display_name}</strong><span className="small muted" style={{ display: 'block' }}>Persönliches Profil</span></div></div>
           <Button variant="secondary" full onClick={() => setEditingProfile(true)}>Profildaten bearbeiten</Button>
-        </Card>
+        </Card>}
 
         <Card className="stack">
           <div><span className="eyebrow">Darstellung</span><h2>Designmodus</h2></div>
@@ -78,13 +84,13 @@ export function SettingsPanel({
           </div>
         </Card>
 
-        <Card className="stack">
+        {!demo && <Card className="stack">
           <div className="card__row"><div className="row"><Cloud size={20} /><div><strong>Datensynchronisierung</strong><span className="small muted" style={{ display: 'block' }}>{online ? pending ? `${pending} Änderungen warten` : 'Aktuell' : 'Offline · lokal gesichert'}</span></div></div><span className={`connection-dot ${online ? '' : 'connection-dot--offline'}`} /></div>
           <Button variant="secondary" full disabled={!online || syncing} onClick={() => void sync()}><RefreshCw size={17} className={syncing ? 'spin' : ''} /> {syncing ? 'Synchronisiert …' : 'Jetzt synchronisieren'}</Button>
-        </Card>
+        </Card>}
         {status && <InfoNote>{status}</InfoNote>}
-        <Button variant="danger" full disabled={loggingOut} onClick={() => void logout()}><LogOut size={18} /> {loggingOut ? 'Wird abgemeldet …' : 'Abmelden'}</Button>
-        <p className="auth-note">Bont speichert laufende Trainings und Änderungen zuerst lokal. Cloud-Daten werden pro Nutzer durch Zugriffsregeln getrennt.</p>
+        <Button variant={demo ? 'secondary' : 'danger'} full disabled={loggingOut} onClick={() => void logout()}><LogOut size={18} /> {demo ? 'Demo verlassen' : loggingOut ? 'Wird abgemeldet …' : 'Abmelden'}</Button>
+        <p className="auth-note">{demo ? 'Änderungen in der Demo bleiben ausschließlich auf diesem Gerät.' : 'Bont speichert laufende Trainings und Änderungen zuerst lokal. Cloud-Daten werden pro Nutzer durch Zugriffsregeln getrennt.'}</p>
       </Modal>
       <ProfileEditor open={open && editingProfile} profile={profile} onClose={() => setEditingProfile(false)} />
     </>

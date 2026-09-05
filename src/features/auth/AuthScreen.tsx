@@ -64,6 +64,7 @@ export function AuthScreen() {
           <Button type="submit" full disabled={loading || !email.trim()}>
             <Mail size={18} /> {loading ? 'Wird gesendet …' : 'Sicher anmelden'} <ArrowRight size={18} />
           </Button>
+          <Button type="button" variant="secondary" full onClick={() => window.location.assign('/demo')}>Ohne Anmeldung ansehen</Button>
           <p className="auth-note">Kein Passwort nötig. Anmeldung und Registrierung erfolgen über einen einmaligen E-Mail-Link.</p>
         </form>
       )}

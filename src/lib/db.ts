@@ -17,6 +17,7 @@ import type {
   WorkoutSet,
 } from '../types'
 import { syncedTables } from '../types'
+import { isDemoUserId } from './demo-constants'
 
 class BontDatabase extends Dexie {
   profiles!: Table<Profile, string>
@@ -67,7 +68,7 @@ export async function saveRecord<T extends AnySyncedRecord>(
 
   await db.transaction('rw', localTable, db.outbox, async () => {
     await localTable.put(next)
-    if (queue) {
+    if (queue && !isDemoUserId(next.user_id)) {
       await db.outbox.put({
         key: `${table}:${next.id}`,
         table,

@@ -6,6 +6,8 @@ import { IconButton, LoadingScreen } from './components/ui'
 import { AuthScreen } from './features/auth/AuthScreen'
 import { Onboarding } from './features/onboarding/Onboarding'
 import { db, syncUser } from './lib/db'
+import { DEMO_USER_ID } from './lib/demo-constants'
+import { seedDemoData } from './lib/demo'
 import { isSupabaseConfigured, supabase } from './lib/supabase'
 import type { Profile, ThemeMode } from './types'
 
@@ -17,13 +19,14 @@ const TrainingScreen = lazy(() => import('./features/training/TrainingScreen').t
 const SettingsPanel = lazy(() => import('./features/settings/SettingsPanel').then((module) => ({ default: module.SettingsPanel })))
 
 export function App() {
+  const demoMode = window.location.pathname === '/demo' || new URLSearchParams(window.location.search).has('demo')
   const [session, setSession] = useState<Session | null>(null)
   const [authReady, setAuthReady] = useState(false)
   const [initialSyncReady, setInitialSyncReady] = useState(false)
   const [tab, setTab] = useState<Tab>('training')
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [online, setOnline] = useState(navigator.onLine)
-  const userId = session?.user.id
+  const userId = demoMode ? DEMO_USER_ID : session?.user.id
   const profile = useLiveQuery(
     () => userId ? db.profiles.where('user_id').equals(userId).first() : undefined,
     [userId],
@@ -35,6 +38,10 @@ export function App() {
   const pending = useLiveQuery(() => db.outbox.count(), [], 0)
 
   useEffect(() => {
+    if (demoMode) {
+      setAuthReady(true)
+      return
+    }
     if (!isSupabaseConfigured) {
       setAuthReady(true)
       return
@@ -48,12 +55,17 @@ export function App() {
       setAuthReady(true)
     })
     return () => data.subscription.unsubscribe()
-  }, [])
+  }, [demoMode])
 
   useEffect(() => {
     if (!userId) {
       setInitialSyncReady(false)
       return
+    }
+    if (demoMode) {
+      let active = true
+      void seedDemoData().then(() => active && setInitialSyncReady(true))
+      return () => { active = false }
     }
     let active = true
     void syncUser(userId).then(() => active && setInitialSyncReady(true))
@@ -72,17 +84,17 @@ export function App() {
       document.removeEventListener('visibilitychange', visibilityHandler)
       window.clearInterval(interval)
     }
-  }, [userId])
+  }, [demoMode, userId])
 
   const resolvedTheme = useResolvedTheme(settings?.theme ?? 'system')
 
-  if (!isSupabaseConfigured) {
+  if (!isSupabaseConfigured && !demoMode) {
     return <div data-theme={resolvedTheme}><main className="center-screen"><div className="brand-mark">B</div><div><h1>Verbindung fehlt</h1><p className="muted">Die Supabase-Umgebungsvariablen sind noch nicht gesetzt.</p></div></main></div>
   }
   if (!authReady) return <div data-theme={resolvedTheme}><LoadingScreen /></div>
-  if (!session) return <div data-theme={resolvedTheme}><AuthScreen /></div>
+  if (!session && !demoMode) return <div data-theme={resolvedTheme}><AuthScreen /></div>
   if (!initialSyncReady) return <div data-theme={resolvedTheme}><LoadingScreen label="Deine Daten werden geladen" /></div>
-  if (!profile?.onboarding_completed) return <div data-theme={resolvedTheme}><Onboarding userId={session.user.id} onComplete={() => void syncUser(session.user.id)} /></div>
+  if (!profile?.onboarding_completed) return <div data-theme={resolvedTheme}><Onboarding userId={userId!} onComplete={() => demoMode ? undefined : void syncUser(userId!)} /></div>
 
   return (
     <div className="app" data-theme={resolvedTheme}>
@@ -90,14 +102,15 @@ export function App() {
         <header className="topbar">
           <span className="wordmark">bont</span>
           <div className="topbar__actions">
-            <span className={`connection-dot ${online ? '' : 'connection-dot--offline'}`} title={online ? pending ? `${pending} Änderungen warten` : 'Synchronisiert' : 'Offline gespeichert'} />
+            {demoMode && <span className="pill">Demo</span>}
+            <span className={`connection-dot ${demoMode || !online ? 'connection-dot--offline' : ''}`} title={demoMode ? 'Demo · nur lokal' : online ? pending ? `${pending} Änderungen warten` : 'Synchronisiert' : 'Offline gespeichert'} />
             <IconButton label="Einstellungen öffnen" onClick={() => setSettingsOpen(true)}><Settings size={20} /></IconButton>
           </div>
         </header>
         <Suspense fallback={<LoadingScreen label="Bereich wird geladen" />}>
-          {tab === 'nutrition' && <NutritionScreen userId={session.user.id} profile={profile} />}
-          {tab === 'body' && <BodyScreen userId={session.user.id} displayName={profile.display_name} />}
-          {tab === 'training' && <TrainingScreen userId={session.user.id} displayName={profile.display_name} />}
+          {tab === 'nutrition' && <NutritionScreen userId={userId!} profile={profile} />}
+          {tab === 'body' && <BodyScreen userId={userId!} displayName={profile.display_name} />}
+          {tab === 'training' && <TrainingScreen userId={userId!} displayName={profile.display_name} />}
         </Suspense>
       </div>
 
@@ -112,6 +125,7 @@ export function App() {
           open={settingsOpen}
           profile={profile}
           online={online}
+          demo={demoMode}
           onClose={() => setSettingsOpen(false)}
           onSignedOut={() => setSettingsOpen(false)}
         />
