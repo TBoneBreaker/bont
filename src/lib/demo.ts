@@ -40,13 +40,13 @@ async function runSeedDemoData() {
 
   const profile: Profile = {
     ...createBase(DEMO_USER_ID, 'demo-profile'),
-    display_name: 'Thomas',
-    birth_date: '2005-09-26',
+    display_name: 'Alex',
+    birth_date: '2000-01-01',
     sex: 'male',
-    height_cm: 193,
-    initial_weight_kg: 90.8,
-    activity_level: 'high',
-    body_fat_category: 'athletic',
+    height_cm: 180,
+    initial_weight_kg: 78.4,
+    activity_level: 'moderate',
+    body_fat_category: 'fit',
     onboarding_completed: true,
   }
   const settings: UserSettings = {
@@ -54,7 +54,7 @@ async function runSeedDemoData() {
     theme: 'system',
     goal_mode: 'bulk',
     calorie_adjustment: 200,
-    preliminary_maintenance: 2850,
+    preliminary_maintenance: 2550,
   }
   const plan: TrainingPlan = {
     ...createBase(DEMO_USER_ID, 'demo-plan-ppl'),
@@ -123,8 +123,8 @@ async function runSeedDemoData() {
   const bodyEntries: BodyEntry[] = Array.from({ length: 14 }, (_, index) => ({
     ...createBase(DEMO_USER_ID, `demo-body-${index}`),
     entry_date: dateOffset(index - 13),
-    weight_kg: Number((90.8 - index * 0.045 + [0.08, -0.04, 0.03][index % 3]).toFixed(2)),
-    calories: 2420 + [80, -40, 20, 0][index % 4],
+    weight_kg: Number((78.4 - index * 0.025 + [0.08, -0.04, 0.03][index % 3]).toFixed(2)),
+    calories: 2380 + [80, -40, 20, 0][index % 4],
     steps: 10_800 + [1200, 400, 2100, 800][index % 4],
   }))
   const meals: MealSlot[] = ['Frühstück', 'Mittagessen', 'Pre Workout', 'Abendessen'].map((name, index) => ({
