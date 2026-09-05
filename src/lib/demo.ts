@@ -23,8 +23,19 @@ const dateOffset = (days: number) => {
 
 const atNoon = (date: string) => `${date}T12:00:00.000Z`
 
-export async function seedDemoData() {
-  if (await db.profiles.where('user_id').equals(DEMO_USER_ID).first()) return
+let seedPromise: Promise<void> | null = null
+
+export function seedDemoData() {
+  if (!seedPromise) seedPromise = runSeedDemoData()
+  return seedPromise
+}
+
+async function runSeedDemoData() {
+  const [existingProfile, existingPlan] = await Promise.all([
+    db.profiles.where('user_id').equals(DEMO_USER_ID).first(),
+    db.training_plans.get('demo-plan-ppl'),
+  ])
+  if (existingProfile && existingPlan) return
 
   const profile: Profile = {
     ...createBase(DEMO_USER_ID, 'demo-profile'),
@@ -163,20 +174,14 @@ export async function seedDemoData() {
     },
   ]
 
-  await db.transaction(
-    'rw',
-    [db.profiles, db.user_settings, db.training_plans, db.training_days, db.exercises, db.workout_sessions, db.workout_sets, db.body_entries, db.meal_slots, db.food_entries],
-    async () => {
-      await db.profiles.put(profile)
-      await db.user_settings.put(settings)
-      await db.training_plans.put(plan)
-      await db.training_days.bulkPut(days)
-      await db.exercises.bulkPut(exercises)
-      await db.workout_sessions.bulkPut(sessions)
-      await db.workout_sets.bulkPut(workoutSets)
-      await db.body_entries.bulkPut(bodyEntries)
-      await db.meal_slots.bulkPut(meals)
-      await db.food_entries.bulkPut(foods)
-    },
-  )
+  await db.profiles.put(profile)
+  await db.user_settings.put(settings)
+  await db.training_plans.put(plan)
+  await db.training_days.bulkPut(days)
+  await db.exercises.bulkPut(exercises)
+  await db.workout_sessions.bulkPut(sessions)
+  await db.workout_sets.bulkPut(workoutSets)
+  await db.body_entries.bulkPut(bodyEntries)
+  await db.meal_slots.bulkPut(meals)
+  await db.food_entries.bulkPut(foods)
 }
