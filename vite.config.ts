@@ -12,6 +12,7 @@ export default defineConfig({
         name: 'Bont – Training & Ernährung',
         short_name: 'Bont',
         description: 'Dein persönlicher, offlinefähiger Fitness-Tracker.',
+        lang: 'de',
         theme_color: '#242424',
         background_color: '#E7E1D9',
         display: 'standalone',
