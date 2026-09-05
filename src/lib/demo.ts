@@ -16,8 +16,7 @@ import type {
 
 const dateOffset = (days: number) => {
   const date = new Date()
-  date.setHours(12, 0, 0, 0)
-  date.setDate(date.getDate() + days)
+  date.setUTCDate(date.getUTCDate() + days)
   return date.toISOString().slice(0, 10)
 }
 
