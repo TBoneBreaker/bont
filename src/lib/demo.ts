@@ -31,11 +31,12 @@ export function seedDemoData() {
 }
 
 async function runSeedDemoData() {
-  const [existingProfile, existingPlan] = await Promise.all([
+  const [existingProfile, existingPlan, existingFood] = await Promise.all([
     db.profiles.where('user_id').equals(DEMO_USER_ID).first(),
     db.training_plans.get('demo-plan-ppl'),
+    db.food_entries.get('demo-food-skyr'),
   ])
-  if (existingProfile && existingPlan) return
+  if (existingProfile && existingPlan && existingFood) return
 
   const profile: Profile = {
     ...createBase(DEMO_USER_ID, 'demo-profile'),
