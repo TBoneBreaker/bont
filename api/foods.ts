@@ -34,7 +34,7 @@ export default async function handler(request: RequestLike, response: ResponseLi
     return response.status(400).json({ error: 'Bitte gib mindestens zwei Zeichen ein.' })
   }
 
-  const params = new URLSearchParams({
+  const legacyParams = new URLSearchParams({
     search_terms: query,
     search_simple: '1',
     action: 'process',
@@ -46,20 +46,43 @@ export default async function handler(request: RequestLike, response: ResponseLi
   })
 
   try {
-    const upstream = await fetch(`https://world.openfoodfacts.org/cgi/search.pl?${params}`, {
+    const modernParams = new URLSearchParams({
+      q: query,
+      page: '1',
+      page_size: '12',
+      langs: 'de,en',
+      fields,
+    })
+    const modern = await fetch(`https://search.openfoodfacts.org/search?${modernParams}`, {
       headers: {
         Accept: 'application/json',
         'User-Agent': 'Bont/0.1 (https://bont-three.vercel.app)',
       },
-      signal: AbortSignal.timeout(8_000),
+      signal: AbortSignal.timeout(6_000),
     })
 
-    if (!upstream.ok) {
-      console.error('[api/foods] Open Food Facts request failed', { status: upstream.status })
+    if (modern.ok) {
+      const data = await modern.json() as { hits?: unknown[] }
+      if (Array.isArray(data.hits)) {
+        response.setHeader('Cache-Control', 's-maxage=300, stale-while-revalidate=3600')
+        return response.status(200).json({ products: data.hits })
+      }
+    }
+    console.warn('[api/foods] Search-a-licious unavailable, using legacy fallback', { status: modern.status })
+
+    const legacy = await fetch(`https://de.openfoodfacts.org/cgi/search.pl?${legacyParams}`, {
+      headers: {
+        Accept: 'application/json',
+        'User-Agent': 'Bont/0.1 (https://bont-three.vercel.app)',
+      },
+      signal: AbortSignal.timeout(7_000),
+    })
+    if (!legacy.ok) {
+      console.error('[api/foods] Open Food Facts fallback failed', { status: legacy.status })
       return response.status(502).json({ error: 'Die Lebensmitteldatenbank antwortet gerade nicht.' })
     }
 
-    const data = await upstream.json()
+    const data = await legacy.json()
     response.setHeader('Cache-Control', 's-maxage=300, stale-while-revalidate=3600')
     return response.status(200).json(data)
   } catch (error) {
