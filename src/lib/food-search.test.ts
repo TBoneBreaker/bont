@@ -34,7 +34,7 @@ describe('searchFoods', () => {
       micronutrientsPer100: { calcium: 120 },
     })])
     expect(fetchMock).toHaveBeenCalledOnce()
-    expect(String(fetchMock.mock.calls[0][0])).toContain('search_terms=Skyr')
+    expect(String(fetchMock.mock.calls[0][0])).toBe('/api/foods?q=Skyr')
   })
 
   it('drops products without a name or calorie value', async () => {
