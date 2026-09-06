@@ -178,6 +178,7 @@ async function searchUsda(query: string) {
     .map((food) => usdaFoodToProduct(food, query, translatedQuery))
     .filter((product): product is NonNullable<ReturnType<typeof usdaFoodToProduct>> => Boolean(product))
     .sort((a, b) => usdaProductScore(b, translatedQuery) - usdaProductScore(a, translatedQuery))
+    .filter((product, index, products) => products.findIndex((candidate) => usdaFingerprint(candidate) === usdaFingerprint(product)) === index)
     .slice(0, 8)
 }
 
@@ -228,13 +229,21 @@ function usdaProductScore(product: NonNullable<ReturnType<typeof usdaFoodToProdu
   const translated = translatedQuery.toLowerCase()
   const firstTerm = translated.split(/\s+/)[0]
   let score = micronutrientCount(product.nutriments) * 2
+  if (name === 'nudeln, trocken') score += 70
+  else if (name === 'nudeln, gekocht') score += 65
+  else if (name === 'banane, roh' || name === 'ei, ganz und roh') score += 70
   if (name.startsWith(firstTerm)) score += 45
   if (/\b(raw|plain|cooked|dry|uncooked|fresh)\b/.test(name)) score += 35
-  if (/\b(dehydrated|powder|chips|pudding|nectar|salad|mixture|mix|with|sauce|baked)\b/.test(name)) score -= 30
+  if (/\b(dehydrated|powder|chips|pudding|nectar|salad|mixture|mix|with|sauce|baked|vegetable|flavored|gluten free)\b/.test(name)) score -= 45
   if (product.data_type === 'Foundation') score += 25
   else if (product.data_type === 'SR Legacy') score += 20
   else if (product.data_type === 'Survey (FNDDS)') score += 12
   return score
+}
+
+function usdaFingerprint(product: NonNullable<ReturnType<typeof usdaFoodToProduct>>) {
+  const calories = Math.round(Number(product.nutriments['energy-kcal_100g']) || 0)
+  return `${String(product.product_name).toLowerCase()}:${calories}`
 }
 
 function localizeUsdaName(description: string, originalQuery: string, translatedQuery: string) {
