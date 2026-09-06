@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ChevronDown, ChevronUp, Dumbbell, Plus, Save, Trash2 } from 'lucide-react'
+import { ChevronDown, ChevronUp, Dumbbell, Minus, Plus, Save, Trash2 } from 'lucide-react'
 import { Button, Card, Field, IconButton, ScreenHeader, SelectField, TextareaField } from '../../components/ui'
 import { db, saveRecord, softDeleteRecord } from '../../lib/db'
 import type { Exercise, TrainingDay, TrainingPlan } from '../../types'
@@ -111,6 +111,15 @@ export function PlanBuilder({
     })
   }
 
+  function changeTargetSets(dayIndex: number, exerciseIndex: number, change: -1 | 1) {
+    updateDay(dayIndex, (day) => ({
+      ...day,
+      exercises: day.exercises.map((exercise, index) => index === exerciseIndex
+        ? { ...exercise, targetSets: Math.min(10, Math.max(1, exercise.targetSets + change)) }
+        : exercise),
+    }))
+  }
+
   async function save() {
     if (!valid) {
       setError('Benenne jeden Trainingstag und füge mindestens eine benannte Übung hinzu.')
@@ -212,7 +221,12 @@ export function PlanBuilder({
                     <IconButton label="Übung entfernen" onClick={() => updateDay(dayIndex, (current) => ({ ...current, exercises: current.exercises.filter((_, index) => index !== exerciseIndex) }))}><Trash2 size={17} /></IconButton>
                   </div>
                   <div className="exercise-draft__bottom">
-                    <label><span>Sätze</span><input className="mini-input" type="number" min="1" max="10" value={exercise.targetSets} onChange={(event) => updateDay(dayIndex, (current) => ({ ...current, exercises: current.exercises.map((item, index) => index === exerciseIndex ? { ...item, targetSets: Math.min(10, Math.max(1, Number(event.target.value))) } : item) }))} /></label>
+                    <div className="set-counter">
+                      <span>Sätze</span>
+                      <button type="button" aria-label={`Sätze für ${exercise.name || `Übung ${exerciseIndex + 1}`} verringern`} disabled={exercise.targetSets <= 1} onClick={() => changeTargetSets(dayIndex, exerciseIndex, -1)}><Minus size={16} /></button>
+                      <strong>{exercise.targetSets}</strong>
+                      <button type="button" aria-label={`Sätze für ${exercise.name || `Übung ${exerciseIndex + 1}`} erhöhen`} disabled={exercise.targetSets >= 10} onClick={() => changeTargetSets(dayIndex, exerciseIndex, 1)}><Plus size={16} /></button>
+                    </div>
                     <div className="row">
                       <IconButton label="Nach oben" disabled={exerciseIndex === 0} onClick={() => moveExercise(dayIndex, exerciseIndex, -1)}><ChevronUp size={17} /></IconButton>
                       <IconButton label="Nach unten" disabled={exerciseIndex === day.exercises.length - 1} onClick={() => moveExercise(dayIndex, exerciseIndex, 1)}><ChevronDown size={17} /></IconButton>

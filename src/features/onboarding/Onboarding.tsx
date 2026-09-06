@@ -90,8 +90,8 @@ export function Onboarding({ userId, onComplete }: { userId: string; onComplete:
       ...createBase(userId),
       entry_date: today,
       weight_kg: Number(weight),
-      calories: 0,
-      steps: 0,
+      calories: null,
+      steps: null,
     })
     setSaving(false)
     onComplete(profile)

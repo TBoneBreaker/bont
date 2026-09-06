@@ -69,9 +69,9 @@ export interface WorkoutSet extends BaseRecord {
 
 export interface BodyEntry extends BaseRecord {
   entry_date: string
-  weight_kg: number
-  calories: number
-  steps: number
+  weight_kg: number | null
+  calories: number | null
+  steps: number | null
 }
 
 export interface MealSlot extends BaseRecord {

@@ -11,10 +11,14 @@ export interface MaintenanceEstimate {
 }
 
 const byDate = (a: BodyEntry, b: BodyEntry) => a.entry_date.localeCompare(b.entry_date)
+type CompleteBodyEntry = BodyEntry & { weight_kg: number; calories: number }
+type WeightBodyEntry = BodyEntry & { weight_kg: number }
 
 export function estimateMaintenance(entries: BodyEntry[]): MaintenanceEstimate {
   const usable = entries
-    .filter((entry) => !entry.deleted_at && entry.weight_kg > 0 && entry.calories > 0)
+    .filter((entry): entry is CompleteBodyEntry =>
+      !entry.deleted_at && entry.weight_kg !== null && entry.weight_kg > 0 && entry.calories !== null && entry.calories > 0,
+    )
     .sort(byDate)
     .slice(-28)
 
@@ -59,10 +63,12 @@ export function estimateMaintenance(entries: BodyEntry[]): MaintenanceEstimate {
 }
 
 export function weeklyAverages(entries: BodyEntry[]) {
-  const usable = entries.filter((entry) => !entry.deleted_at && entry.weight_kg > 0).sort(byDate)
+  const usable = entries
+    .filter((entry): entry is WeightBodyEntry => !entry.deleted_at && entry.weight_kg !== null && entry.weight_kg > 0)
+    .sort(byDate)
   const current = usable.slice(-7)
   const previous = usable.slice(-14, -7)
-  const average = (rows: BodyEntry[]) =>
+  const average = (rows: WeightBodyEntry[]) =>
     rows.length === 7 ? rows.reduce((sum, row) => sum + row.weight_kg, 0) / 7 : null
   const currentAverage = average(current)
   const previousAverage = average(previous)

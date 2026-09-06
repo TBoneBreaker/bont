@@ -16,6 +16,15 @@ describe('maintenance estimation', () => {
     expect(estimateMaintenance([entry(1, 90)]).maintenance).toBeNull()
   })
 
+  it('ignores partial days without losing their individual values', () => {
+    const partial: BodyEntry[] = [
+      { ...entry(1, 90), calories: null, steps: null },
+      { ...entry(2, 90), weight_kg: null, steps: 12_000 },
+    ]
+    expect(estimateMaintenance(partial).days).toBe(0)
+    expect(weeklyAverages(partial).current).toBeNull()
+  })
+
   it('returns average calories when weight is stable', () => {
     const rows = Array.from({ length: 14 }, (_, index) => entry(index + 1, 90, 2400))
     expect(estimateMaintenance(rows).maintenance).toBe(2400)

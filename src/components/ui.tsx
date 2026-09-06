@@ -1,6 +1,6 @@
 import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, SelectHTMLAttributes } from 'react'
 import { useEffect } from 'react'
-import { ArrowLeft, Info, X } from 'lucide-react'
+import { ArrowLeft, Info, Minus, Plus, X } from 'lucide-react'
 
 export function Button({
   children,
@@ -49,6 +49,61 @@ export function Field({
       <input className="input" {...props} />
       {hint && <span className="field__hint">{hint}</span>}
     </label>
+  )
+}
+
+export function NumberStepper({
+  label,
+  value,
+  onChange,
+  step = 1,
+  min = 0,
+  max,
+  unit,
+  inputLabel,
+}: {
+  label: string
+  value: string
+  onChange: (value: string) => void
+  step?: number
+  min?: number
+  max?: number
+  unit?: string
+  inputLabel?: string
+}) {
+  const precision = String(step).split('.')[1]?.length ?? 0
+  const format = (number: number) => number.toFixed(precision)
+  const adjust = (direction: -1 | 1) => {
+    const parsed = Number(value)
+    const base = value === '' || Number.isNaN(parsed) ? null : parsed
+    let next = base === null
+      ? direction === 1 ? (min > 0 ? min : step) : min
+      : base + direction * step
+    next = Math.max(min, max === undefined ? next : Math.min(max, next))
+    onChange(format(next))
+  }
+
+  return (
+    <div className="field">
+      <span className="field__label">{label}</span>
+      <span className="number-stepper">
+        <button type="button" aria-label={`${label} verringern`} onClick={() => adjust(-1)}><Minus size={18} /></button>
+        <span className="number-stepper__value">
+          <input
+            aria-label={inputLabel ?? label}
+            type="number"
+            inputMode={precision ? 'decimal' : 'numeric'}
+            min={min}
+            max={max}
+            step={step}
+            value={value}
+            onChange={(event) => onChange(event.target.value)}
+          />
+          {unit && <small>{unit}</small>}
+        </span>
+        <button type="button" aria-label={`${label} erhöhen`} onClick={() => adjust(1)}><Plus size={18} /></button>
+      </span>
+    </div>
   )
 }
 

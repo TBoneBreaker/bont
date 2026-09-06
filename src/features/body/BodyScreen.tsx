@@ -1,149 +1,242 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { Activity, CalendarDays, Footprints, Scale, Sparkles, Utensils } from 'lucide-react'
-import { Button, Card, Field, InfoNote, Metric, ProgressBar } from '../../components/ui'
+import { CalendarDays, Check, Footprints, Gauge, Plus, Scale, Sparkles, Utensils } from 'lucide-react'
+import { Button, Card, Field, InfoNote, Metric, Modal, NumberStepper, ProgressBar } from '../../components/ui'
 import { db, saveRecord } from '../../lib/db'
 import { estimateMaintenance, weeklyAverages } from '../../lib/maintenance'
 import type { BodyEntry } from '../../types'
 import { createBase } from '../../types'
 
-const today = () => new Date().toISOString().slice(0, 10)
+type BodyMetric = 'weight_kg' | 'calories' | 'steps'
 
-export function BodyScreen({ userId, displayName }: { userId: string; displayName: string }) {
+const today = () => {
+  const date = new Date()
+  const offset = date.getTimezoneOffset() * 60_000
+  return new Date(date.getTime() - offset).toISOString().slice(0, 10)
+}
+
+export function BodyScreen({ userId }: { userId: string }) {
   const entries = useLiveQuery(
-    async () => (await db.body_entries.where('user_id').equals(userId).toArray()).filter((entry) => !entry.deleted_at).sort((a, b) => a.entry_date.localeCompare(b.entry_date)),
+    async () => (await db.body_entries.where('user_id').equals(userId).toArray())
+      .filter((entry) => !entry.deleted_at)
+      .sort((a, b) => a.entry_date.localeCompare(b.entry_date)),
     [userId],
     [],
   )
+  const settings = useLiveQuery(() => db.user_settings.where('user_id').equals(userId).first(), [userId])
+  const [entryOpen, setEntryOpen] = useState(false)
   const [entryDate, setEntryDate] = useState(today())
   const [weight, setWeight] = useState('')
   const [calories, setCalories] = useState('')
   const [steps, setSteps] = useState('')
-  const [saved, setSaved] = useState(false)
+  const [savedMetric, setSavedMetric] = useState<BodyMetric | null>(null)
 
   const existing = entries.find((entry) => entry.entry_date === entryDate)
+
   useEffect(() => {
-    setWeight(existing?.weight_kg ? String(existing.weight_kg) : '')
-    setCalories(existing?.calories ? String(existing.calories) : '')
-    setSteps(existing?.steps ? String(existing.steps) : '')
-  }, [existing?.id, existing?.updated_at, entryDate])
+    if (!entryOpen) return
+    const previous = entries.filter((entry) => entry.entry_date < entryDate).slice().reverse()
+    const previousWeight = previous.find((entry) => entry.weight_kg !== null)?.weight_kg
+    const previousCalories = previous.find((entry) => entry.calories !== null)?.calories
+    const previousSteps = previous.find((entry) => entry.steps !== null)?.steps
+    setWeight(String(existing?.weight_kg ?? previousWeight ?? ''))
+    setCalories(String(existing?.calories ?? previousCalories ?? ''))
+    setSteps(String(existing?.steps ?? previousSteps ?? ''))
+  }, [entryDate, entryOpen, entries, existing?.id, existing?.updated_at])
 
   const estimate = useMemo(() => estimateMaintenance(entries), [entries])
   const weeks = useMemo(() => weeklyAverages(entries), [entries])
-  const completeDays = entries.filter((entry) => entry.weight_kg > 0 && entry.calories > 0).length
-  const progress = Math.min(100, completeDays / 14 * 100)
+  const completeDays = entries.filter((entry) =>
+    entry.weight_kg !== null && entry.weight_kg > 0 && entry.calories !== null && entry.calories > 0,
+  ).length
+  const maintenance = estimate.maintenance ?? settings?.preliminary_maintenance ?? null
+  const todayCalories = entries.find((entry) => entry.entry_date === today())?.calories ?? null
+  const balance = maintenance !== null && todayCalories !== null ? Math.round(todayCalories - maintenance) : null
 
-  async function save() {
-    if (!weight || !calories || !steps) return
+  const chartData = useMemo(() => ({
+    calories: entries.filter((entry): entry is BodyEntry & { calories: number } => entry.calories !== null).slice(-14).map((entry) => ({ date: entry.entry_date, value: entry.calories! })),
+    steps: entries.filter((entry): entry is BodyEntry & { steps: number } => entry.steps !== null).slice(-14).map((entry) => ({ date: entry.entry_date, value: entry.steps! })),
+    weight: entries.filter((entry): entry is BodyEntry & { weight_kg: number } => entry.weight_kg !== null).slice(-14).map((entry) => ({ date: entry.entry_date, value: entry.weight_kg! })),
+  }), [entries])
+
+  function openEntry() {
+    setEntryDate(today())
+    setSavedMetric(null)
+    setEntryOpen(true)
+  }
+
+  async function saveMetric(metric: BodyMetric) {
+    const raw = metric === 'weight_kg' ? weight : metric === 'calories' ? calories : steps
+    if (raw === '' || Number.isNaN(Number(raw))) return
+    const value = metric === 'weight_kg' ? Number(raw) : Math.round(Number(raw))
+    if ((metric === 'weight_kg' && (value < 35 || value > 300)) ||
+      (metric === 'calories' && (value < 0 || value > 10_000)) ||
+      (metric === 'steps' && (value < 0 || value > 100_000))) return
+    const latest = (await db.body_entries.where('entry_date').equals(entryDate).toArray())
+      .find((entry) => entry.user_id === userId && !entry.deleted_at)
     const record: BodyEntry = {
-      ...(existing ?? createBase(userId)),
+      ...(latest ?? createBase(userId)),
       entry_date: entryDate,
-      weight_kg: Number(weight),
-      calories: Math.round(Number(calories)),
-      steps: Math.round(Number(steps)),
+      weight_kg: metric === 'weight_kg' ? value : latest?.weight_kg ?? null,
+      calories: metric === 'calories' ? value : latest?.calories ?? null,
+      steps: metric === 'steps' ? value : latest?.steps ?? null,
       deleted_at: null,
     }
     await saveRecord('body_entries', record)
-    setSaved(true)
-    window.setTimeout(() => setSaved(false), 1400)
+    setSavedMetric(metric)
+    window.setTimeout(() => setSavedMetric((current) => current === metric ? null : current), 1500)
   }
 
   return (
-    <main className="content">
-      <div className="page-intro"><p className="page-intro__greeting">Dein Trend, {displayName}.</p><h1>Körperanalyse</h1></div>
+    <main className="content body-dashboard">
+      <div className="page-heading">
+        <div><span className="eyebrow">Körperanalyse</span><h1>Deine Entwicklung auf einen Blick.</h1></div>
+        <button className="quick-add" onClick={openEntry} aria-label="Körperwerte eintragen"><Plus size={22} /></button>
+      </div>
 
-      <Card className={`stack ${estimate.maintenance ? 'card--accent' : ''}`}>
-        <div className="card__row card__row--top">
-          <div>
-            <span className="eyebrow">Geschätzter Erhaltungsbedarf</span>
-            <div className="hero-number">{estimate.maintenance ? `${estimate.maintenance.toLocaleString('de-DE')} kcal` : 'Noch in Kalibrierung'}</div>
-          </div>
-          <div className="feature-icon feature-icon--transparent"><Sparkles size={21} /></div>
-        </div>
-        <ProgressBar value={progress} tone={estimate.maintenance ? 'taupe' : 'green'} />
-        <p className="muted small" style={{ margin: 0 }}>
-          {completeDays < 7
-            ? `${7 - completeDays} vollständige ${7 - completeDays === 1 ? 'Tag' : 'Tage'} bis zur ersten Schätzung. Für ein gutes Ergebnis sind 14+ Tage besser.`
-            : estimate.reason ?? `${estimate.days} Tage ausgewertet · ${confidenceLabel[estimate.confidence]}`}
-        </p>
-      </Card>
+      <div className="chart-grid-cards">
+        <MetricChart
+          icon={<Utensils size={18} />}
+          label="Kalorien"
+          values={chartData.calories}
+          tone="orange"
+          format={(value) => `${Math.round(value).toLocaleString('de-DE')} kcal`}
+        />
+        <MetricChart
+          icon={<Footprints size={18} />}
+          label="Schritte"
+          values={chartData.steps}
+          tone="cyan"
+          format={(value) => Math.round(value).toLocaleString('de-DE')}
+        />
+        <MetricChart
+          icon={<Scale size={18} />}
+          label="Gewicht"
+          values={chartData.weight}
+          tone="violet"
+          format={(value) => `${value.toLocaleString('de-DE', { maximumFractionDigits: 1 })} kg`}
+        />
+      </div>
 
-      <Card className="stack">
-        <div className="card__row"><div><span className="eyebrow">Täglicher Check-in</span><h2>Werte eintragen</h2></div><CalendarDays size={20} className="muted" /></div>
-        <Field label="Datum" type="date" value={entryDate} max={today()} onChange={(event) => setEntryDate(event.target.value)} />
-        <div className="grid-3 body-inputs">
-          <Field label="Gewicht (kg)" type="number" inputMode="decimal" min="35" max="300" step="0.1" value={weight} onChange={(event) => setWeight(event.target.value)} placeholder="90,0" />
-          <Field label="Kalorien" type="number" inputMode="numeric" min="500" max="10000" value={calories} onChange={(event) => setCalories(event.target.value)} placeholder="2500" />
-          <Field label="Schritte" type="number" inputMode="numeric" min="0" max="100000" value={steps} onChange={(event) => setSteps(event.target.value)} placeholder="10000" />
-        </div>
-        <Button full disabled={!weight || !calories || !steps} onClick={() => void save()}>{saved ? 'Gespeichert' : existing ? 'Eintrag aktualisieren' : 'Tag speichern'}</Button>
-        <p className="auth-note">Für vergleichbare Werte morgens nach dem Aufstehen, nüchtern und unter ähnlichen Bedingungen wiegen.</p>
-      </Card>
-
-      <div className="section-heading"><h2>Wochentrend</h2><span className="pill">7-Tage-Mittel</span></div>
-      <div className="grid-3">
+      <div className="section-heading"><div><span className="eyebrow">7-Tage-Mittel</span><h2>Wochentrend</h2></div><span className="pill">Gewicht</span></div>
+      <div className="grid-3 weekly-metrics">
         <Metric label="Diese Woche" value={weeks.current === null ? '–' : `${weeks.current.toFixed(1)} kg`} tone="green" />
         <Metric label="Vorwoche" value={weeks.previous === null ? '–' : `${weeks.previous.toFixed(1)} kg`} tone="taupe" />
         <Metric
           label="Veränderung"
           value={weeks.change === null ? '–' : `${weeks.change > 0 ? '+' : ''}${weeks.change.toFixed(2)} kg`}
-          detail={weeks.change === null ? '14 Einträge nötig' : weeks.change > 0.05 ? 'Zunahme' : weeks.change < -0.05 ? 'Abnahme' : 'stabil'}
+          detail={weeks.change === null ? '14 Messungen nötig' : weeks.change > 0.05 ? 'Zunahme' : weeks.change < -0.05 ? 'Abnahme' : 'Stabil'}
           tone="blue"
         />
       </div>
 
-      {entries.length > 1 && (
-        <Card className="stack">
-          <div><span className="eyebrow">Letzte 14 Einträge</span><h2>Verlauf</h2></div>
-          <TrendRow icon={<Scale size={17} />} label="Körpergewicht" color="green" values={entries.slice(-14).map((entry) => ({ date: entry.entry_date, value: entry.weight_kg }))} unit="kg" />
-          <TrendRow icon={<Utensils size={17} />} label="Kalorien" color="taupe" values={entries.slice(-14).filter((entry) => entry.calories > 0).map((entry) => ({ date: entry.entry_date, value: entry.calories }))} unit="kcal" />
-          <TrendRow icon={<Footprints size={17} />} label="Schritte" color="blue" values={entries.slice(-14).filter((entry) => entry.steps >= 0).map((entry) => ({ date: entry.entry_date, value: entry.steps }))} unit="" />
-        </Card>
-      )}
+      <Card className="maintenance-card stack">
+        <div className="card__row card__row--top">
+          <div>
+            <span className="eyebrow">{estimate.maintenance ? 'Aus deinen Daten berechnet' : 'Vorläufig geschätzt'}</span>
+            <div className="maintenance-card__number">{maintenance ? maintenance.toLocaleString('de-DE') : '–'} <small>kcal</small></div>
+            <p>Dein täglicher Erhaltungsbedarf</p>
+          </div>
+          <span className="maintenance-card__icon"><Gauge size={22} /></span>
+        </div>
+        <div className={`energy-balance ${balance === null ? '' : balance > 0 ? 'energy-balance--surplus' : balance < 0 ? 'energy-balance--deficit' : 'energy-balance--even'}`}>
+          <Sparkles size={17} />
+          <span>{balanceLabel(balance)}</span>
+        </div>
+        {!estimate.maintenance && (
+          <div className="stack stack--tight">
+            <div className="row row--between tiny"><span>{Math.min(completeDays, 7)} von 7 kombinierten Tagen</span><span>{Math.round(Math.min(100, completeDays / 7 * 100))} %</span></div>
+            <ProgressBar value={completeDays / 7 * 100} tone="blue" />
+            <p className="tiny muted">Sobald an sieben Tagen Gewicht und Kalorien vorliegen, ersetzt Bont die Startschätzung automatisch.</p>
+          </div>
+        )}
+      </Card>
 
       <Card className="card--soft">
-        <InfoNote>
-          Bont schätzt den täglichen Gewichtstrend und verrechnet ihn mit deiner durchschnittlichen Kalorienzufuhr. Als Näherung gelten 7.700 kcal pro Kilogramm. Wasser, Glykogen und Verdauungsinhalt können das Ergebnis kurzfristig stark verzerren – deshalb steigt die Verlässlichkeit erst mit mehr Tagen.
-        </InfoNote>
+        <InfoNote>Gewicht, Kalorien und Schritte werden getrennt gespeichert. Trage morgens nur dein Gewicht ein und ergänze Kalorien oder Schritte später – vorhandene Werte bleiben erhalten.</InfoNote>
       </Card>
+
+      <Modal open={entryOpen} title="Werte eintragen" onClose={() => setEntryOpen(false)}>
+        <div className="entry-date-card">
+          <CalendarDays size={19} />
+          <Field label="Datum" type="date" value={entryDate} max={today()} onChange={(event) => { setEntryDate(event.target.value); setSavedMetric(null) }} />
+        </div>
+        <p className="tiny muted entry-prefill-note">Die letzten Werte sind für schnelleres Eintragen vorbelegt. Gespeichert wird immer nur der Wert, dessen Button du drückst.</p>
+
+        <section className="metric-entry metric-entry--violet">
+          <div className="metric-entry__title"><Scale size={19} /><div><strong>Gewicht</strong><span>{existing?.weight_kg !== null && existing?.weight_kg !== undefined ? 'Für dieses Datum gespeichert' : 'Am besten morgens nüchtern'}</span></div></div>
+          <NumberStepper label="Kilogramm" value={weight} onChange={setWeight} step={0.1} min={35} max={300} unit="kg" />
+          <Button variant="secondary" full disabled={!weight} onClick={() => void saveMetric('weight_kg')}>{savedMetric === 'weight_kg' ? <><Check size={18} /> Gespeichert</> : 'Gewicht speichern'}</Button>
+        </section>
+
+        <section className="metric-entry metric-entry--orange">
+          <div className="metric-entry__title"><Utensils size={19} /><div><strong>Kalorien</strong><span>{existing?.calories !== null && existing?.calories !== undefined ? 'Für dieses Datum gespeichert' : 'Kannst du abends ergänzen'}</span></div></div>
+          <Field label="Kilokalorien" type="number" inputMode="numeric" min="0" max="10000" value={calories} onChange={(event) => setCalories(event.target.value)} placeholder="2500" />
+          <Button variant="secondary" full disabled={calories === ''} onClick={() => void saveMetric('calories')}>{savedMetric === 'calories' ? <><Check size={18} /> Gespeichert</> : 'Kalorien speichern'}</Button>
+        </section>
+
+        <section className="metric-entry metric-entry--cyan">
+          <div className="metric-entry__title"><Footprints size={19} /><div><strong>Schritte</strong><span>{existing?.steps !== null && existing?.steps !== undefined ? 'Für dieses Datum gespeichert' : 'Jederzeit nachtragen'}</span></div></div>
+          <Field label="Anzahl Schritte" type="number" inputMode="numeric" min="0" max="100000" value={steps} onChange={(event) => setSteps(event.target.value)} placeholder="10000" />
+          <Button variant="secondary" full disabled={steps === ''} onClick={() => void saveMetric('steps')}>{savedMetric === 'steps' ? <><Check size={18} /> Gespeichert</> : 'Schritte speichern'}</Button>
+        </section>
+      </Modal>
     </main>
   )
 }
 
-const confidenceLabel = {
-  insufficient: 'noch nicht ausreichend',
-  preliminary: 'vorläufige Schätzung',
-  good: 'gute Datengrundlage',
-  strong: 'starke Datengrundlage',
+function balanceLabel(balance: number | null) {
+  if (balance === null) return 'Heute noch keine Kalorien eingetragen'
+  if (balance > 0) return `Heute ${balance.toLocaleString('de-DE')} kcal im Überschuss`
+  if (balance < 0) return `Heute ${Math.abs(balance).toLocaleString('de-DE')} kcal im Defizit`
+  return 'Heute kein Überschuss und kein Defizit'
 }
 
-function TrendRow({
+function MetricChart({
   icon,
   label,
   values,
-  unit,
-  color,
+  tone,
+  format,
 }: {
-  icon: React.ReactNode
+  icon: ReactNode
   label: string
   values: { date: string; value: number }[]
-  unit: string
-  color: 'green' | 'blue' | 'taupe'
+  tone: 'orange' | 'cyan' | 'violet'
+  format: (value: number) => string
 }) {
-  if (values.length < 2) return null
-  const min = Math.min(...values.map((point) => point.value))
-  const max = Math.max(...values.map((point) => point.value))
-  const range = max - min || 1
-  const coords = values.map((point, index) => ({
-    x: values.length === 1 ? 50 : (index / (values.length - 1)) * 100,
-    y: 34 - ((point.value - min) / range) * 27,
+  const latest = values.at(-1)
+  const min = values.length ? Math.min(...values.map((point) => point.value)) : 0
+  const max = values.length ? Math.max(...values.map((point) => point.value)) : 1
+  const range = max - min || Math.max(Math.abs(max) * 0.05, 1)
+  const hasRange = max !== min
+  const points = values.map((point, index) => ({
+    x: values.length === 1 ? 160 : 12 + index * (296 / (values.length - 1)),
+    y: hasRange ? 86 - ((point.value - min) / range) * 58 : 57,
   }))
-  const points = coords.map((point) => `${point.x},${point.y}`).join(' ')
-  const latest = values.at(-1)!
+  const line = points.map((point) => `${point.x},${point.y}`).join(' ')
+  const firstDate = values[0]?.date
+
   return (
-    <div className="trend-row">
-      <div className="row"><span className={`trend-row__icon tone-${color}`}>{icon}</span><div><strong>{label}</strong><span>{latest.value.toLocaleString('de-DE')} {unit}</span></div></div>
-      <svg viewBox="0 0 100 38" preserveAspectRatio="none" aria-label={`${label} Verlauf`}><polyline points={points} className={`spark-line chart-line--${color}`} /></svg>
-    </div>
+    <Card className={`metric-chart metric-chart--${tone}`}>
+      <div className="metric-chart__head">
+        <span className="metric-chart__icon">{icon}</span>
+        <div><span>{label}</span><strong>{latest ? format(latest.value) : 'Noch kein Wert'}</strong></div>
+      </div>
+      <div className="metric-chart__plot">
+        {values.length ? (
+          <svg viewBox="0 0 320 104" preserveAspectRatio="none" role="img" aria-label={`${label}: Verlauf der letzten ${values.length} Einträge`}>
+            <line x1="12" x2="308" y1="87" y2="87" className="metric-chart__baseline" />
+            {values.length > 1 && <polyline points={line} className="metric-chart__line" />}
+            {points.map((point, index) => <circle key={`${values[index].date}-${index}`} cx={point.x} cy={point.y} r={index === points.length - 1 ? 4.5 : 2.5} className="metric-chart__point" />)}
+          </svg>
+        ) : <div className="metric-chart__empty">Mit deinem ersten Eintrag entsteht hier der Verlauf.</div>}
+      </div>
+      {firstDate && latest && <div className="metric-chart__dates"><span>{formatDate(firstDate)}</span><span>{formatDate(latest.date)}</span></div>}
+    </Card>
   )
+}
+
+function formatDate(value: string) {
+  return new Intl.DateTimeFormat('de-DE', { day: '2-digit', month: '2-digit' }).format(new Date(`${value}T12:00:00`))
 }

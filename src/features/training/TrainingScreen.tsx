@@ -2,29 +2,41 @@ import { useEffect, useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import {
   BarChart3,
+  CalendarDays,
   Check,
   CheckCircle2,
   ChevronRight,
   Circle,
   ClipboardList,
-  Dumbbell,
   Library,
   MoreHorizontal,
+  Pencil,
+  Play,
   Plus,
   RotateCcw,
 } from 'lucide-react'
-import { Button, Card, EmptyState, Field, IconButton, Metric, Modal, ScreenHeader } from '../../components/ui'
+import { Button, Card, EmptyState, Field, IconButton, Modal, NumberStepper, ScreenHeader } from '../../components/ui'
 import { db, saveRecord } from '../../lib/db'
 import type { Exercise, TrainingDay, TrainingPlan, WorkoutSession, WorkoutSet } from '../../types'
-import { createBase, newId } from '../../types'
+import { createBase } from '../../types'
 import { PlanBuilder } from './PlanBuilder'
 
 type TrainingView = 'overview' | 'templates'
+
+const today = () => {
+  const date = new Date()
+  const offset = date.getTimezoneOffset() * 60_000
+  return new Date(date.getTime() - offset).toISOString().slice(0, 10)
+}
+
+const dateAtNoon = (date: string) => `${date}T12:00:00.000Z`
 
 export function TrainingScreen({ userId, displayName }: { userId: string; displayName: string }) {
   const [view, setView] = useState<TrainingView>('overview')
   const [builder, setBuilder] = useState<{ plan?: TrainingPlan; template: boolean } | null>(null)
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
+  const [selectedDayId, setSelectedDayId] = useState<string | null>(null)
+  const [workoutDate, setWorkoutDate] = useState(today())
   const [starting, setStarting] = useState(false)
 
   const plans = useLiveQuery(
@@ -53,10 +65,20 @@ export function TrainingScreen({ userId, displayName }: { userId: string; displa
   )
 
   useEffect(() => {
-    if (!activeSessionId && activeSessions[0]) setActiveSessionId(activeSessions[0].id)
-  }, [activeSessionId, activeSessions])
+    if (!days.length) {
+      setSelectedDayId(null)
+      return
+    }
+    if (!selectedDayId || !days.some((day) => day.id === selectedDayId)) setSelectedDayId(days[0].id)
+  }, [days, selectedDayId])
 
-  async function startWorkout(day: TrainingDay) {
+  const selectedDay = days.find((day) => day.id === selectedDayId) ?? days[0]
+  const selectedDayExercises = selectedDay
+    ? exercises.filter((exercise) => exercise.training_day_id === selectedDay.id).sort((a, b) => a.order_index - b.order_index)
+    : []
+  const selectedActiveSession = activeSessions.find((session) => session.training_day_id === selectedDay?.id)
+
+  async function startWorkout(day: TrainingDay, date: string) {
     const existing = activeSessions.find((session) => session.training_day_id === day.id)
     if (existing) {
       setActiveSessionId(existing.id)
@@ -64,43 +86,45 @@ export function TrainingScreen({ userId, displayName }: { userId: string; displa
     }
     if (!activePlan) return
     setStarting(true)
-    const session: WorkoutSession = {
-      ...createBase(userId),
-      training_plan_id: activePlan.id,
-      training_day_id: day.id,
-      started_at: new Date().toISOString(),
-      completed_at: null,
-      status: 'active',
-    }
-    await saveRecord('workout_sessions', session)
-
-    const dayExercises = exercises.filter((exercise) => exercise.training_day_id === day.id).sort((a, b) => a.order_index - b.order_index)
-    const completedSessions = (await db.workout_sessions.where('training_day_id').equals(day.id).toArray())
-      .filter((item) => item.status === 'completed' && !item.deleted_at)
-      .sort((a, b) => b.started_at.localeCompare(a.started_at))
-    const previousSessionIds = new Set(completedSessions.map((item) => item.id))
-    const previousSets = (await db.workout_sets.where('user_id').equals(userId).toArray())
-      .filter((set) => previousSessionIds.has(set.session_id) && !set.deleted_at)
-
-    for (const exercise of dayExercises) {
-      for (let index = 0; index < exercise.target_sets; index += 1) {
-        const previous = completedSessions
-          .map((previousSession) => previousSets.find((set) => set.session_id === previousSession.id && set.exercise_id === exercise.id && set.set_number === index + 1))
-          .find(Boolean)
-        const set: WorkoutSet = {
-          ...createBase(userId),
-          session_id: session.id,
-          exercise_id: exercise.id,
-          set_number: index + 1,
-          weight_kg: previous?.weight_kg ?? null,
-          reps: previous?.reps ?? null,
-          is_completed: false,
-        }
-        await saveRecord('workout_sets', set)
+    try {
+      const session: WorkoutSession = {
+        ...createBase(userId),
+        training_plan_id: activePlan.id,
+        training_day_id: day.id,
+        started_at: dateAtNoon(date),
+        completed_at: null,
+        status: 'active',
       }
+      await saveRecord('workout_sessions', session)
+
+      const dayExercises = exercises.filter((exercise) => exercise.training_day_id === day.id).sort((a, b) => a.order_index - b.order_index)
+      const completedSessions = (await db.workout_sessions.where('training_day_id').equals(day.id).toArray())
+        .filter((item) => item.status === 'completed' && !item.deleted_at)
+        .sort((a, b) => b.started_at.localeCompare(a.started_at))
+      const previousSessionIds = new Set(completedSessions.map((item) => item.id))
+      const previousSets = (await db.workout_sets.where('user_id').equals(userId).toArray())
+        .filter((set) => previousSessionIds.has(set.session_id) && !set.deleted_at)
+
+      for (const exercise of dayExercises) {
+        for (let index = 0; index < exercise.target_sets; index += 1) {
+          const previous = completedSessions
+            .map((previousSession) => previousSets.find((set) => set.session_id === previousSession.id && set.exercise_id === exercise.id && set.set_number === index + 1))
+            .find(Boolean)
+          await saveRecord('workout_sets', {
+            ...createBase(userId),
+            session_id: session.id,
+            exercise_id: exercise.id,
+            set_number: index + 1,
+            weight_kg: previous?.weight_kg ?? null,
+            reps: previous?.reps ?? null,
+            is_completed: false,
+          })
+        }
+      }
+      setActiveSessionId(session.id)
+    } finally {
+      setStarting(false)
     }
-    setStarting(false)
-    setActiveSessionId(session.id)
   }
 
   async function useTemplate(template: TrainingPlan) {
@@ -180,8 +204,8 @@ export function TrainingScreen({ userId, displayName }: { userId: string; displa
   if (!activePlan) {
     return (
       <main className="content">
-        <div className="page-intro"><p className="page-intro__greeting">Schön, dass du da bist, {displayName}.</p><h1>Dein Training beginnt mit einem guten Plan.</h1></div>
-        <Card className="stack">
+        <div className="page-heading"><div><span className="eyebrow">Training</span><h1>Ein Plan, der zu dir passt.</h1><p>Starte übersichtlich und passe später jede Übung an, {displayName}.</p></div></div>
+        <Card className="stack empty-feature-card">
           <div className="feature-icon"><ClipboardList size={23} /></div>
           <div><h2>Eigenen Plan erstellen</h2><p className="muted">Wähle deinen Split, benenne Trainingstage und lege Übungen, Reihenfolge und Sätze selbst fest.</p></div>
           <Button full onClick={() => setBuilder({ template: false })}><Plus size={18} /> Plan erstellen</Button>
@@ -194,35 +218,50 @@ export function TrainingScreen({ userId, displayName }: { userId: string; displa
   }
 
   return (
-    <main className="content">
-      <div className="page-intro"><p className="page-intro__greeting">Bereit, {displayName}?</p><h1>{activePlan.name}</h1></div>
+    <main className="content training-dashboard">
+      <div className="page-heading">
+        <div><span className="eyebrow">Aktiver Trainingsplan</span><h1>{activePlan.name}</h1></div>
+        <IconButton label="Trainingsplan bearbeiten" onClick={() => setBuilder({ plan: activePlan, template: false })}><Pencil size={19} /></IconButton>
+      </div>
 
       {activeSessions.length > 0 && (
-        <Card className="card--accent stack">
-          <div><span className="eyebrow">Läuft auf diesem Gerät weiter</span><h2>Training fortsetzen</h2></div>
-          <p className="muted small">Deine bisherigen Eingaben sind lokal gesichert – auch ohne Verbindung.</p>
-          <Button variant="secondary" full onClick={() => setActiveSessionId(activeSessions[0].id)}><RotateCcw size={18} /> Fortsetzen</Button>
+        <Card className="resume-card">
+          <div><span className="eyebrow">Lokal gesichert</span><h2>Training läuft weiter</h2><p>Du kannst es fortsetzen oder erst einen anderen Bereich öffnen.</p></div>
+          <Button variant="secondary" onClick={() => setActiveSessionId(activeSessions[0].id)}><RotateCcw size={18} /> Fortsetzen</Button>
         </Card>
       )}
 
-      <div className="section-heading"><h2>Trainingstage</h2><Button variant="ghost" onClick={() => setBuilder({ plan: activePlan, template: false })}>Plan bearbeiten</Button></div>
-      <div className="stack">
-        {days.map((day, index) => {
-          const dayExercises = exercises.filter((exercise) => exercise.training_day_id === day.id)
-          const sets = dayExercises.reduce((sum, exercise) => sum + exercise.target_sets, 0)
-          return (
-            <Card key={day.id} className="training-day-card">
-              <div className="training-day-card__number">{String(index + 1).padStart(2, '0')}</div>
-              <div className="training-day-card__copy"><h2>{day.name}</h2><p>{dayExercises.length} Übungen · {sets} Sätze</p></div>
-              <Button disabled={starting} onClick={() => void startWorkout(day)}>Start <ChevronRight size={17} /></Button>
-            </Card>
-          )
-        })}
+      <div className="split-tabs" role="tablist" aria-label="Trainingstag auswählen">
+        {days.map((day) => (
+          <button key={day.id} role="tab" aria-selected={selectedDay?.id === day.id} onClick={() => setSelectedDayId(day.id)}>{day.name}</button>
+        ))}
       </div>
 
-      <Card className="card--soft card--interactive" onClick={() => setView('templates')}>
-        <div className="card__row"><div className="row"><Library size={20} /><div><h3>Planvorlagen</h3><span className="muted small">Weitere Pläne vorbereiten</span></div></div><ChevronRight size={19} /></div>
-      </Card>
+      {selectedDay && (
+        <Card className="day-workspace stack">
+          <div className="day-workspace__top">
+            <div><span className="eyebrow">Trainingstag</span><h2>{selectedDay.name}</h2><p>{selectedDayExercises.length} Übungen · {selectedDayExercises.reduce((sum, exercise) => sum + exercise.target_sets, 0)} Sätze</p></div>
+            <label className="workout-date"><span>Datum</span><input type="date" value={workoutDate} max={today()} onChange={(event) => setWorkoutDate(event.target.value)} /></label>
+          </div>
+          <div className="plan-exercise-list">
+            {selectedDayExercises.map((exercise, index) => (
+              <div className="plan-exercise-row" key={exercise.id}>
+                <span>{String(index + 1).padStart(2, '0')}</span>
+                <strong>{exercise.name}</strong>
+                <small>{exercise.target_sets} {exercise.target_sets === 1 ? 'Satz' : 'Sätze'}</small>
+              </div>
+            ))}
+          </div>
+          <Button full disabled={starting || selectedDayExercises.length === 0} onClick={() => void startWorkout(selectedDay, workoutDate)}>
+            {selectedActiveSession ? <><RotateCcw size={18} /> Training fortsetzen</> : <><Play size={18} fill="currentColor" /> Training öffnen</>}
+          </Button>
+        </Card>
+      )}
+
+      <div className="row row--between training-footer-actions">
+        <Button variant="ghost" onClick={() => setView('templates')}><Library size={17} /> Planvorlagen</Button>
+        <Button variant="ghost" onClick={() => setBuilder({ plan: activePlan, template: false })}><Pencil size={17} /> Plan bearbeiten</Button>
+      </div>
       {activePlan.notes && <Card className="card--soft"><span className="eyebrow">Notiz zum Plan</span><p className="small" style={{ margin: 0 }}>{activePlan.notes}</p></Card>}
     </main>
   )
@@ -243,15 +282,17 @@ function WorkoutView({ userId, sessionId, onExit }: { userId: string; sessionId:
     const exerciseSets = sets.filter((set) => set.exercise_id === exercise.id)
     return exerciseSets.length > 0 && exerciseSets.every((set) => set.is_completed)
   }).map((exercise) => exercise.id)), [exercises, sets])
+  const orderedExercises = useMemo(() => [
+    ...exercises.filter((exercise) => !completeExerciseIds.has(exercise.id)),
+    ...exercises.filter((exercise) => completeExerciseIds.has(exercise.id)),
+  ], [exercises, completeExerciseIds])
 
   useEffect(() => {
-    if (!selectedExerciseId && exercises.length) {
+    if (exercises.length && (!selectedExerciseId || !exercises.some((exercise) => exercise.id === selectedExerciseId))) {
       setSelectedExerciseId(exercises.find((exercise) => !completeExerciseIds.has(exercise.id))?.id ?? exercises[0].id)
     }
   }, [selectedExerciseId, exercises, completeExerciseIds])
 
-  const selectedExercise = exercises.find((exercise) => exercise.id === selectedExerciseId)
-  const selectedSets = sets.filter((set) => set.exercise_id === selectedExerciseId)
   const allDone = exercises.length > 0 && exercises.every((exercise) => completeExerciseIds.has(exercise.id))
 
   async function updateSet(set: WorkoutSet, key: 'weight_kg' | 'reps', raw: string) {
@@ -259,16 +300,28 @@ function WorkoutView({ userId, sessionId, onExit }: { userId: string; sessionId:
     await saveRecord('workout_sets', { ...set, [key]: value })
   }
 
-  async function finishExercise() {
-    if (!selectedExercise) return
-    if (selectedSets.some((set) => set.weight_kg === null || set.reps === null || set.reps <= 0)) {
+  async function finishExercise(exercise: Exercise) {
+    const exerciseSets = sets.filter((set) => set.exercise_id === exercise.id)
+    if (exerciseSets.some((set) => set.weight_kg === null || set.reps === null || set.reps <= 0)) {
+      setSelectedExerciseId(exercise.id)
       setMessage('Trage für jeden Satz Gewicht und Wiederholungen ein.')
       return
     }
-    for (const set of selectedSets) await saveRecord('workout_sets', { ...set, is_completed: true })
+    const next = exercises.find((item) => item.id !== exercise.id && !completeExerciseIds.has(item.id))
+    for (const set of exerciseSets) await saveRecord('workout_sets', { ...set, is_completed: true })
     setMessage('')
-    const next = exercises.find((exercise) => exercise.id !== selectedExercise.id && !completeExerciseIds.has(exercise.id))
-    if (next) setSelectedExerciseId(next.id)
+    setSelectedExerciseId(next?.id ?? exercise.id)
+  }
+
+  async function reopenExercise(exercise: Exercise) {
+    const exerciseSets = sets.filter((set) => set.exercise_id === exercise.id)
+    for (const set of exerciseSets) await saveRecord('workout_sets', { ...set, is_completed: false })
+    setSelectedExerciseId(exercise.id)
+  }
+
+  async function changeWorkoutDate(value: string) {
+    if (!session) return
+    await saveRecord('workout_sessions', { ...session, started_at: dateAtNoon(value) })
   }
 
   async function finishWorkout() {
@@ -284,43 +337,77 @@ function WorkoutView({ userId, sessionId, onExit }: { userId: string; sessionId:
     <div className="subview workout-shell">
       <ScreenHeader title={day.name} eyebrow="Laufendes Training" onBack={onExit} action={<span className="pill">{completeExerciseIds.size}/{exercises.length}</span>} />
       <main className="content content--narrow">
-        <div className="exercise-tabs" aria-label="Übung auswählen">
-          {exercises.map((exercise, index) => (
-            <button key={exercise.id} aria-pressed={exercise.id === selectedExerciseId} onClick={() => setSelectedExerciseId(exercise.id)}>
-              {completeExerciseIds.has(exercise.id) ? <CheckCircle2 size={17} /> : <span>{index + 1}</span>}
-              <small>{exercise.name}</small>
-            </button>
-          ))}
+        <Card className="workout-date-card">
+          <div><CalendarDays size={19} /><div><span>Trainingsdatum</span><strong>{formatLongDate(session.started_at.slice(0, 10))}</strong></div></div>
+          <input aria-label="Trainingsdatum ändern" type="date" value={session.started_at.slice(0, 10)} max={today()} onChange={(event) => void changeWorkoutDate(event.target.value)} />
+        </Card>
+
+        <div className="workout-progress-copy">
+          <div><span className="eyebrow">Übungen</span><h2>{allDone ? 'Alles erledigt.' : 'Wähle deine nächste Übung.'}</h2></div>
+          <span>{completeExerciseIds.size} von {exercises.length}</span>
         </div>
 
-        {selectedExercise && (
-          <Card className="stack workout-card">
-            <div className="card__row card__row--top">
-              <div><span className="eyebrow">Übung {exercises.findIndex((item) => item.id === selectedExercise.id) + 1} von {exercises.length}</span><h1>{selectedExercise.name}</h1></div>
-              <IconButton label="Fortschritt anzeigen" onClick={() => setProgressExercise(selectedExercise)}><BarChart3 size={20} /></IconButton>
-            </div>
-            <div className="set-table">
-              <div className="set-table__head"><span>Satz</span><span>Gewicht</span><span>Wdh.</span><span>Status</span></div>
-              {selectedSets.map((set) => (
-                <div className={`set-row ${set.is_completed ? 'set-row--done' : ''}`} key={set.id}>
-                  <strong>{set.set_number}</strong>
-                  <label><input aria-label={`Gewicht Satz ${set.set_number}`} type="number" min="0" step="0.25" inputMode="decimal" value={set.weight_kg ?? ''} onChange={(event) => void updateSet(set, 'weight_kg', event.target.value)} /><span>kg</span></label>
-                  <label><input aria-label={`Wiederholungen Satz ${set.set_number}`} type="number" min="1" max="100" inputMode="numeric" value={set.reps ?? ''} onChange={(event) => void updateSet(set, 'reps', event.target.value)} /><span>Wdh.</span></label>
-                  {set.is_completed ? <CheckCircle2 size={21} className="done-icon" /> : <Circle size={21} className="muted" />}
+        <div className="workout-exercise-list">
+          {orderedExercises.map((exercise) => {
+            const complete = completeExerciseIds.has(exercise.id)
+            const selected = selectedExerciseId === exercise.id
+            const exerciseSets = sets.filter((set) => set.exercise_id === exercise.id)
+            return (
+              <Card key={exercise.id} className={`workout-exercise ${complete ? 'workout-exercise--complete' : 'workout-exercise--pending'} ${selected ? 'workout-exercise--selected' : ''}`}>
+                <div className="workout-exercise__head">
+                  <button className="workout-exercise__select" onClick={() => setSelectedExerciseId(exercise.id)} aria-expanded={selected}>
+                    <span className="workout-exercise__status">{complete ? <CheckCircle2 size={20} /> : <Circle size={20} />}</span>
+                    <span><strong>{exercise.name}</strong><small>{exerciseSets.length} {exerciseSets.length === 1 ? 'Satz' : 'Sätze'} · {complete ? 'abgeschlossen' : 'offen'}</small></span>
+                  </button>
+                  <IconButton label={`Fortschritt für ${exercise.name} anzeigen`} onClick={() => setProgressExercise(exercise)}><BarChart3 size={19} /></IconButton>
                 </div>
-              ))}
-            </div>
-            {message && <p className="small" role="status" style={{ color: allDone ? 'var(--green)' : 'var(--danger)', margin: 0 }}>{message}</p>}
-            {completeExerciseIds.has(selectedExercise.id) ? (
-              <Button variant="secondary" full disabled><Check size={18} /> Übung erledigt</Button>
-            ) : (
-              <Button full onClick={() => void finishExercise()}><Check size={18} /> Übung abschließen</Button>
-            )}
-          </Card>
-        )}
 
-        <Button full disabled={!allDone} onClick={() => void finishWorkout()}><CheckCircle2 size={19} /> {allDone ? `${day.name} abschließen` : 'Erst alle Übungen abschließen'}</Button>
-        <p className="auth-note">Du kannst jederzeit zurückgehen. Das laufende Training bleibt auf diesem Gerät gespeichert.</p>
+                {selected && (
+                  <div className="workout-exercise__body">
+                    <div className="set-cards">
+                      {exerciseSets.map((set) => (
+                        <div className={`set-card ${set.is_completed ? 'set-card--done' : ''}`} key={set.id}>
+                          <div className="set-card__number"><span>Satz</span><strong>{set.set_number}</strong></div>
+                          <div className="set-input-grid">
+                            <NumberStepper
+                              label="Gewicht"
+                              inputLabel={`Gewicht Satz ${set.set_number}`}
+                              value={set.weight_kg === null ? '' : String(set.weight_kg)}
+                              onChange={(value) => void updateSet(set, 'weight_kg', value)}
+                              step={0.5}
+                              min={0}
+                              max={500}
+                              unit="kg"
+                            />
+                            <NumberStepper
+                              label="Wiederholungen"
+                              inputLabel={`Wiederholungen Satz ${set.set_number}`}
+                              value={set.reps === null ? '' : String(set.reps)}
+                              onChange={(value) => void updateSet(set, 'reps', value)}
+                              step={1}
+                              min={1}
+                              max={100}
+                              unit="Wdh."
+                            />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    {message && !complete && <p className="form-error" role="status">{message}</p>}
+                    {complete ? (
+                      <Button variant="secondary" full onClick={() => void reopenExercise(exercise)}><RotateCcw size={17} /> Übung wieder öffnen</Button>
+                    ) : (
+                      <Button full onClick={() => void finishExercise(exercise)}><Check size={18} /> Übung abschließen</Button>
+                    )}
+                  </div>
+                )}
+              </Card>
+            )
+          })}
+        </div>
+
+        <Button full disabled={!allDone} onClick={() => void finishWorkout()}><CheckCircle2 size={19} /> {allDone ? `${day.name} abschließen` : 'Training abschließen'}</Button>
+        <p className="auth-note">Du kannst diese Ansicht jederzeit verlassen. Alle Eingaben und das laufende Training bleiben lokal gespeichert.</p>
       </main>
       <ExerciseProgressModal open={Boolean(progressExercise)} exercise={progressExercise} userId={userId} onClose={() => setProgressExercise(null)} />
       {message && allDone && <div className="toast">{message}</div>}
@@ -388,4 +475,8 @@ function ExerciseChart({ history }: { history: { session: WorkoutSession; sets: 
       <text x="338" y="181" textAnchor="end">Wiederholungen unter den Punkten</text>
     </svg>
   )
+}
+
+function formatLongDate(value: string) {
+  return new Intl.DateTimeFormat('de-DE', { weekday: 'short', day: '2-digit', month: 'short' }).format(new Date(`${value}T12:00:00`))
 }

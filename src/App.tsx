@@ -109,7 +109,7 @@ export function App() {
         </header>
         <Suspense fallback={<LoadingScreen label="Bereich wird geladen" />}>
           {tab === 'nutrition' && <NutritionScreen userId={userId!} profile={profile} />}
-          {tab === 'body' && <BodyScreen userId={userId!} displayName={profile.display_name} />}
+          {tab === 'body' && <BodyScreen userId={userId!} />}
           {tab === 'training' && <TrainingScreen userId={userId!} displayName={profile.display_name} />}
         </Suspense>
       </div>

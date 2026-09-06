@@ -42,9 +42,14 @@ export function NutritionScreen({ userId, profile }: { userId: string; profile: 
 
   async function recalculateBodyCalories() {
     const bodyEntry = bodyEntries.find((entry) => entry.entry_date === date)
-    if (!bodyEntry) return
     const freshFood = (await db.food_entries.where('entry_date').equals(date).toArray()).filter((entry) => entry.user_id === userId && !entry.deleted_at)
-    await saveRecord('body_entries', { ...bodyEntry, calories: Math.round(sumFood(freshFood).calories) })
+    await saveRecord('body_entries', {
+      ...(bodyEntry ?? createBase(userId)),
+      entry_date: date,
+      weight_kg: bodyEntry?.weight_kg ?? null,
+      steps: bodyEntry?.steps ?? null,
+      calories: Math.round(sumFood(freshFood).calories),
+    })
   }
 
   async function removeFood(entry: FoodEntry) {
