@@ -48,22 +48,16 @@ export async function searchFoods(query: string, signal?: AbortSignal): Promise<
   const normalizedQuery = query.trim()
   if (normalizedQuery.length < 2) return []
 
-  const params = new URLSearchParams({
-    search_terms: normalizedQuery,
-    search_simple: '1',
-    action: 'process',
-    json: '1',
-    page_size: '12',
-    lc: 'de',
-    cc: 'de',
-    fields: 'code,product_name,product_name_de,brands,quantity,product_quantity_unit,nutriments',
-  })
-  const response = await fetch(`https://world.openfoodfacts.org/cgi/search.pl?${params}`, {
+  const params = new URLSearchParams({ q: normalizedQuery })
+  const response = await fetch(`/api/foods?${params}`, {
     method: 'GET',
     headers: { Accept: 'application/json' },
     signal,
   })
-  if (!response.ok) throw new Error('Die Lebensmittelsuche ist gerade nicht erreichbar.')
+  if (!response.ok) {
+    const message = await response.json().then((body) => body?.error).catch(() => null)
+    throw new Error(message || 'Die Lebensmittelsuche ist gerade nicht erreichbar.')
+  }
 
   const data = await response.json() as OpenFoodFactsResponse
   return (data.products ?? []).flatMap((product) => {
