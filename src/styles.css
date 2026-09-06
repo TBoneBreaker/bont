@@ -148,6 +148,10 @@ p { line-height: 1.55; }
 .auth-hero p { color: var(--muted); max-width: 34ch; font-size: 1.04rem; }
 .auth-panel { display: grid; gap: 14px; }
 form.auth-panel { padding: 18px; border: 1px solid var(--border); border-radius: 23px; background: var(--surface); box-shadow: var(--shadow); }
+.auth-mode { margin-bottom: 2px; }
+.auth-panel__heading { display: grid; gap: 5px; padding: 4px 2px 2px; }
+.auth-panel__heading h2, .auth-panel__heading p { margin: 0; }
+.auth-panel__heading p { color: var(--muted); font-size: 0.82rem; line-height: 1.45; }
 .auth-note { font-size: 0.76rem; color: var(--muted); text-align: center; margin: 0; }
 
 .onboarding { min-height: 100vh; width: min(100%, 620px); margin: auto; padding: calc(24px + env(safe-area-inset-top)) 20px calc(30px + env(safe-area-inset-bottom)); display: grid; grid-template-rows: auto 1fr auto; gap: 24px; }
@@ -219,6 +223,11 @@ form.auth-panel { padding: 18px; border: 1px solid var(--border); border-radius:
 .exercise-name-input { width: 100%; min-width: 0; height: 42px; border: 0; background: transparent; color: var(--text); outline: 0; }
 .exercise-name-input::placeholder { color: var(--subtle); }
 .exercise-draft__bottom { display: flex; align-items: center; justify-content: space-between; gap: 10px; border-top: 1px solid var(--border); padding: 7px; }
+.day-volume-summary { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 2px; padding: 14px 15px; border-radius: 16px; background: color-mix(in srgb, var(--primary) 9%, var(--surface-soft)); }
+.day-volume-summary div { display: grid; gap: 2px; }
+.day-volume-summary span { font-size: 0.78rem; font-weight: 750; }
+.day-volume-summary small { color: var(--muted); font-size: 0.68rem; }
+.day-volume-summary strong { color: var(--primary); font-size: 1rem; white-space: nowrap; }
 .exercise-draft__bottom label { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 0.75rem; padding-left: 7px; }
 .mini-input { width: 54px; height: 38px; text-align: center; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 12px; }
 .training-day-card { display: grid; grid-template-columns: 44px 1fr auto; align-items: center; gap: 12px; padding: 15px; }

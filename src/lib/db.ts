@@ -79,6 +79,7 @@ export async function saveRecord<T extends AnySyncedRecord>(
       })
     }
   })
+  if (queue && !isDemoUserId(next.user_id)) scheduleUserSync(next.user_id)
   return next
 }
 
@@ -87,7 +88,24 @@ export async function softDeleteRecord(table: SyncedTableName, record: AnySynced
   return saveRecord(table, { ...record, deleted_at: timestamp, updated_at: timestamp } as AnySyncedRecord)
 }
 
-let activeSync: Promise<SyncResult> | null = null
+const syncChains = new Map<string, Promise<SyncResult>>()
+const syncTimers = new Map<string, ReturnType<typeof setTimeout>>()
+
+const tablePriority = new Map(syncedTables.map((table, index) => [table, index]))
+
+function pendingForUser(userId: string) {
+  return db.outbox.toArray().then((items) => items.filter((item) => item.payload.user_id === userId).length)
+}
+
+function scheduleUserSync(userId: string) {
+  if (typeof navigator !== 'undefined' && !navigator.onLine) return
+  const current = syncTimers.get(userId)
+  if (current) window.clearTimeout(current)
+  syncTimers.set(userId, window.setTimeout(() => {
+    syncTimers.delete(userId)
+    void syncUser(userId)
+  }, 350))
+}
 
 export interface SyncResult {
   pushed: number
@@ -96,65 +114,86 @@ export interface SyncResult {
   error?: string
 }
 
-async function runSync(userId: string): Promise<SyncResult> {
+async function runSync(userId: string, full = false): Promise<SyncResult> {
   if (!navigator.onLine) {
-    return { pushed: 0, pulled: 0, pending: await db.outbox.count() }
+    return { pushed: 0, pulled: 0, pending: await pendingForUser(userId) }
   }
 
   let pushed = 0
   let pulled = 0
 
   try {
-    const queued = await db.outbox.orderBy('created_at').toArray()
+    const queued = (await db.outbox.orderBy('created_at').toArray())
+      .filter((item) => item.payload.user_id === userId)
+      .sort((a, b) => (tablePriority.get(a.table) ?? 99) - (tablePriority.get(b.table) ?? 99)
+        || a.created_at.localeCompare(b.created_at))
     for (const item of queued) {
-      if (item.payload.user_id !== userId) continue
       const { error } = await supabase.from(item.table).upsert(item.payload, { onConflict: 'id' })
       if (error) throw error
-      await db.outbox.delete(item.key)
+      const current = await db.outbox.get(item.key)
+      if (current?.created_at === item.created_at) await db.outbox.delete(item.key)
       pushed += 1
     }
 
-    const lastSync = (await db.sync_meta.get(`last-sync:${userId}`))?.value ?? '1970-01-01T00:00:00.000Z'
-    const pendingKeys = new Set((await db.outbox.toArray()).map((item) => item.key))
+    const pendingKeys = new Set((await db.outbox.toArray())
+      .filter((item) => item.payload.user_id === userId)
+      .map((item) => item.key))
 
     for (const tableName of syncedTables) {
-      const { data, error } = await supabase
-        .from(tableName)
-        .select('*')
-        .eq('user_id', userId)
-        .gt('updated_at', lastSync)
-        .order('updated_at', { ascending: true })
-        .limit(1000)
-
-      if (error) throw error
+      const cursorKey = `last-sync:${userId}:${tableName}`
+      const legacyCursor = (await db.sync_meta.get(`last-sync:${userId}`))?.value
+      const cursor = full ? null : (await db.sync_meta.get(cursorKey))?.value ?? legacyCursor ?? null
       const localTable = getTable(tableName)
-      for (const row of data ?? []) {
-        if (!pendingKeys.has(`${tableName}:${row.id}`)) {
-          await localTable.put(row as AnySyncedRecord)
-          pulled += 1
+      let offset = 0
+      let newestTimestamp = cursor
+
+      while (true) {
+        let query = supabase
+          .from(tableName)
+          .select('*')
+          .eq('user_id', userId)
+          .order('updated_at', { ascending: true })
+          .order('id', { ascending: true })
+          .range(offset, offset + 499)
+        if (cursor) query = query.gt('updated_at', cursor)
+        const { data, error } = await query
+        if (error) throw error
+
+        for (const row of data ?? []) {
+          const key = `${tableName}:${row.id}`
+          if (!pendingKeys.has(key)) {
+            await localTable.put(row as AnySyncedRecord)
+            pulled += 1
+          }
+          if (!newestTimestamp || row.updated_at > newestTimestamp) newestTimestamp = row.updated_at
         }
+        if (!data || data.length < 500) break
+        offset += data.length
       }
+
+      if (newestTimestamp) await db.sync_meta.put({ key: cursorKey, value: newestTimestamp })
     }
 
-    await db.sync_meta.put({ key: `last-sync:${userId}`, value: new Date().toISOString() })
-    return { pushed, pulled, pending: await db.outbox.count() }
+    return { pushed, pulled, pending: await pendingForUser(userId) }
   } catch (error) {
     return {
       pushed,
       pulled,
-      pending: await db.outbox.count(),
+      pending: await pendingForUser(userId),
       error: error instanceof Error ? error.message : 'Synchronisierung fehlgeschlagen',
     }
   }
 }
 
-export function syncUser(userId: string) {
-  if (!activeSync) {
-    activeSync = runSync(userId).finally(() => {
-      activeSync = null
-    })
-  }
-  return activeSync
+export function syncUser(userId: string, options: { full?: boolean } = {}) {
+  const previous = syncChains.get(userId)
+  const next = (previous ?? Promise.resolve({ pushed: 0, pulled: 0, pending: 0 }))
+    .then(() => runSync(userId, options.full))
+  syncChains.set(userId, next)
+  void next.then(() => {
+    if (syncChains.get(userId) === next) syncChains.delete(userId)
+  })
+  return next
 }
 
 export async function clearLocalUserData(userId: string) {
@@ -166,5 +205,9 @@ export async function clearLocalUserData(userId: string) {
     const queued = await db.outbox.toArray()
     await db.outbox.bulkDelete(queued.filter((item) => item.payload.user_id === userId).map((item) => item.key))
     await db.sync_meta.delete(`last-sync:${userId}`)
+    const perTableCursors = (await db.sync_meta.toArray())
+      .filter((item) => item.key.startsWith(`last-sync:${userId}:`))
+      .map((item) => item.key)
+    await db.sync_meta.bulkDelete(perTableCursors)
   })
 }

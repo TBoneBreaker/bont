@@ -160,7 +160,7 @@ export function NutritionScreen({ userId, profile }: { userId: string; profile: 
               {foods.length > 0 && <div className="food-list">
                 {foods.map((food) => (
                   <div className="food-row" key={food.id}>
-                    <div><strong>{food.name}</strong><span>{food.amount} {food.unit === 'piece' ? 'Stück' : food.unit} · {Math.round(food.calories)} kcal</span></div>
+                    <div><strong>{food.name}</strong><span>{food.brand ? `${food.brand} · ` : ''}{food.amount} {food.unit === 'piece' ? 'Stück' : food.unit} · {Math.round(food.calories)} kcal</span></div>
                     <IconButton label={`${food.name} entfernen`} onClick={() => void removeFood(food)}><Trash2 size={16} /></IconButton>
                   </div>
                 ))}
@@ -215,6 +215,7 @@ function FoodSearchModal({
   const [searchError, setSearchError] = useState('')
   const [selectedProduct, setSelectedProduct] = useState<FoodSearchResult | null>(null)
   const [name, setName] = useState('')
+  const [brand, setBrand] = useState('')
   const [amount, setAmount] = useState('100')
   const [unit, setUnit] = useState<FoodEntry['unit']>('g')
   const [calories, setCalories] = useState('')
@@ -230,6 +231,7 @@ function FoodSearchModal({
   function startManual(prefill = query) {
     setSelectedProduct(null)
     setName(prefill)
+    setBrand('')
     setAmount('100')
     setUnit('g')
     setCalories('')
@@ -242,6 +244,7 @@ function FoodSearchModal({
 
   function useRecent(entry: FoodEntry) {
     setName(entry.name)
+    setBrand(entry.brand ?? '')
     setAmount(String(entry.amount))
     setUnit(entry.unit)
     setCalories(String(entry.calories))
@@ -256,6 +259,7 @@ function FoodSearchModal({
   function useProduct(product: FoodSearchResult) {
     setSelectedProduct(product)
     setName(product.name)
+    setBrand(product.brand)
     setUnit(product.unit)
     applyProductAmount(product, '100')
     setManual(true)
@@ -296,6 +300,7 @@ function FoodSearchModal({
       meal_slot_id: meal.id,
       entry_date: date,
       name: name.trim(),
+      brand: brand.trim(),
       amount: Number(amount),
       unit,
       calories: Number(calories),
@@ -311,6 +316,7 @@ function FoodSearchModal({
     setResults([])
     setSearchedQuery('')
     setName('')
+    setBrand('')
     setSelectedProduct(null)
     onClose()
   }
@@ -336,7 +342,7 @@ function FoodSearchModal({
           </form>
           <Button variant="secondary" full disabled><ScanBarcode size={19} /> Barcode-Scanner folgt in der Handy-App</Button>
           {!searchedQuery && recent.length > 0 && (
-            <div className="stack stack--tight"><span className="eyebrow">Zuletzt verwendet</span>{recent.map((entry) => <button className="recent-food" key={entry.id} onClick={() => useRecent(entry)}><div><strong>{entry.name}</strong><span>{entry.amount} {entry.unit} · {Math.round(entry.calories)} kcal</span></div><Plus size={18} /></button>)}</div>
+            <div className="stack stack--tight"><span className="eyebrow">Zuletzt verwendet</span>{recent.map((entry) => <button className="recent-food" key={entry.id} onClick={() => useRecent(entry)}><div><strong>{entry.name}</strong><span>{entry.brand ? `${entry.brand} · ` : ''}{entry.amount} {entry.unit} · {Math.round(entry.calories)} kcal</span></div><Plus size={18} /></button>)}</div>
           )}
           {results.length > 0 && (
             <div className="stack stack--tight">
@@ -367,8 +373,9 @@ function FoodSearchModal({
         </>
       ) : (
         <>
-          {selectedProduct && <div className="database-selection"><Database size={18} /><div><strong>Aus der Lebensmitteldatenbank</strong><span>Nährwerte werden automatisch an die Menge angepasst.</span></div></div>}
+          {selectedProduct && <div className="database-selection"><Database size={18} /><div><strong>{selectedProduct.brand || 'Aus der Lebensmitteldatenbank'}</strong><span>Nährwerte werden automatisch an die Menge angepasst.</span></div></div>}
           <Field label="Lebensmittel" value={name} onChange={(event) => setName(event.target.value)} placeholder="z. B. Skyr" autoFocus />
+          <Field label="Marke (optional)" value={brand} onChange={(event) => setBrand(event.target.value)} placeholder="z. B. K-Classic" maxLength={120} />
           <div className="input-row">
             <Field label="Menge" type="number" min="0.1" step="0.1" value={amount} onChange={(event) => selectedProduct ? applyProductAmount(selectedProduct, event.target.value) : setAmount(event.target.value)} />
             <SelectField label="Einheit" value={unit} onChange={(event) => setUnit(event.target.value as FoodEntry['unit'])}><option value="g">Gramm</option><option value="ml">Milliliter</option><option value="piece">Stück</option></SelectField>

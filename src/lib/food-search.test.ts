@@ -11,7 +11,7 @@ describe('searchFoods', () => {
         products: [{
           code: '123',
           product_name_de: 'Natur Skyr',
-          brands: 'Beispiel',
+          brands: ['Beispiel', ' Beispiel '],
           nutriments: {
             'energy-kcal_100g': 63,
             proteins_100g: 11,
@@ -44,5 +44,19 @@ describe('searchFoods', () => {
     }))
 
     await expect(searchFoods('test')).resolves.toEqual([])
+  })
+
+  it('shows array-based brands and ranks name matches above brand-only matches', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ products: [
+        { code: '1', product_name: 'Compote', brands: ['Skyr'], nutriments: { 'energy-kcal_100g': 65 } },
+        { code: '2', product_name: 'Skyr Natur', brands: ['K-Classic'], nutriments: { 'energy-kcal_100g': 64 } },
+      ] }),
+    }))
+
+    const results = await searchFoods('Skyr')
+    expect(results.map((product) => product.name)).toEqual(['Skyr Natur', 'Compote'])
+    expect(results[0].brand).toBe('K-Classic')
   })
 })

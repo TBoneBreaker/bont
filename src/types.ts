@@ -83,6 +83,7 @@ export interface FoodEntry extends BaseRecord {
   meal_slot_id: string
   entry_date: string
   name: string
+  brand?: string
   amount: number
   unit: 'g' | 'ml' | 'piece'
   calories: number

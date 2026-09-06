@@ -14,7 +14,7 @@ interface OpenFoodFactsProduct {
   code?: string
   product_name?: string
   product_name_de?: string
-  brands?: string
+  brands?: string | string[]
   quantity?: string
   product_quantity_unit?: string
   nutriments?: Record<string, unknown>
@@ -60,10 +60,12 @@ export async function searchFoods(query: string, signal?: AbortSignal): Promise<
   }
 
   const data = await response.json() as OpenFoodFactsResponse
-  return (data.products ?? []).flatMap((product) => {
+  const products = (data.products ?? []).flatMap((product) => {
     const normalized = normalizeProduct(product)
     return normalized ? [normalized] : []
   })
+  const needle = normalizedQuery.toLocaleLowerCase('de-DE')
+  return products.sort((a, b) => relevanceScore(b, needle) - relevanceScore(a, needle))
 }
 
 function normalizeProduct(product: OpenFoodFactsProduct): FoodSearchResult | null {
@@ -80,9 +82,9 @@ function normalizeProduct(product: OpenFoodFactsProduct): FoodSearchResult | nul
   )
 
   return {
-    id: product.code || `${name}-${cleanText(product.brands)}`,
+    id: product.code || `${name}-${cleanBrand(product.brands)}`,
     name,
-    brand: cleanText(product.brands),
+    brand: cleanBrand(product.brands),
     unit: isLiquid(product) ? 'ml' : 'g',
     caloriesPer100: calories,
     proteinPer100: numberFrom(nutrients.proteins_100g) ?? 0,
@@ -119,6 +121,21 @@ function numberFrom(value: unknown) {
 
 function cleanText(value: unknown) {
   return typeof value === 'string' ? value.trim() : ''
+}
+
+function cleanBrand(value: unknown) {
+  const brands = Array.isArray(value) ? value : [value]
+  return Array.from(new Set(brands.map(cleanText).filter(Boolean))).join(', ')
+}
+
+function relevanceScore(product: FoodSearchResult, needle: string) {
+  const name = product.name.toLocaleLowerCase('de-DE')
+  const brand = product.brand.toLocaleLowerCase('de-DE')
+  if (name === needle) return 4
+  if (name.startsWith(needle)) return 3
+  if (name.includes(needle)) return 2
+  if (brand.includes(needle)) return 1
+  return 0
 }
 
 function isLiquid(product: OpenFoodFactsProduct) {

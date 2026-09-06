@@ -192,7 +192,7 @@ export function PlanBuilder({
           <SelectField label="Split" value={split} onChange={(event) => changeSplit(Number(event.target.value))}>
             {Array.from({ length: 7 }, (_, index) => <option value={index + 1} key={index + 1}>{index + 1}er-Split</option>)}
           </SelectField>
-          <div className="row row--between"><span className="muted small">Gesamtvolumen</span><strong>{totalSets} Sätze</strong></div>
+          <div className="row row--between"><span className="muted small">Sätze im gesamten Plan</span><strong>{totalSets} Sätze</strong></div>
         </Card>
 
         {days.map((day, dayIndex) => (
@@ -236,6 +236,10 @@ export function PlanBuilder({
               ))}
             </div>
             <Button variant="secondary" full onClick={() => addExercise(dayIndex)}><Plus size={18} /> Übung hinzufügen</Button>
+            <div className="day-volume-summary">
+              <div><span>Gesamtvolumen</span><small>{day.name.trim() || `Training ${dayIndex + 1}`}</small></div>
+              <strong>{day.exercises.reduce((sum, exercise) => sum + exercise.targetSets, 0)} Sätze</strong>
+            </div>
           </Card>
         ))}
 

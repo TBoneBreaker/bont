@@ -23,7 +23,8 @@ export function SettingsPanel({
   onSignedOut: () => void
 }) {
   const settings = useLiveQuery(() => db.user_settings.where('user_id').equals(profile.user_id).first(), [profile.user_id])
-  const pending = useLiveQuery(() => db.outbox.count(), [], 0)
+  const pending = useLiveQuery(async () => (await db.outbox.toArray())
+    .filter((item) => item.payload.user_id === profile.user_id).length, [profile.user_id], 0)
   const [editingProfile, setEditingProfile] = useState(false)
   const [syncing, setSyncing] = useState(false)
   const [status, setStatus] = useState('')

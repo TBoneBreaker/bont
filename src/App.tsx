@@ -2,7 +2,7 @@ import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { Activity, Dumbbell, Settings, Utensils } from 'lucide-react'
-import { IconButton, LoadingScreen } from './components/ui'
+import { Button, IconButton, LoadingScreen } from './components/ui'
 import { AuthScreen } from './features/auth/AuthScreen'
 import { Onboarding } from './features/onboarding/Onboarding'
 import { db, syncUser } from './lib/db'
@@ -23,6 +23,8 @@ export function App() {
   const [session, setSession] = useState<Session | null>(null)
   const [authReady, setAuthReady] = useState(false)
   const [initialSyncReady, setInitialSyncReady] = useState(false)
+  const [initialSyncError, setInitialSyncError] = useState('')
+  const [syncAttempt, setSyncAttempt] = useState(0)
   const [tab, setTab] = useState<Tab>('training')
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [online, setOnline] = useState(navigator.onLine)
@@ -35,7 +37,9 @@ export function App() {
     () => userId ? db.user_settings.where('user_id').equals(userId).first() : undefined,
     [userId],
   )
-  const pending = useLiveQuery(() => db.outbox.count(), [], 0)
+  const pending = useLiveQuery(async () => userId
+    ? (await db.outbox.toArray()).filter((item) => item.payload.user_id === userId).length
+    : 0, [userId], 0)
 
   useEffect(() => {
     if (demoMode) {
@@ -60,6 +64,7 @@ export function App() {
   useEffect(() => {
     if (!userId) {
       setInitialSyncReady(false)
+      setInitialSyncError('')
       return
     }
     if (demoMode) {
@@ -68,7 +73,21 @@ export function App() {
       return () => { active = false }
     }
     let active = true
-    void syncUser(userId).then(() => active && setInitialSyncReady(true))
+    setInitialSyncReady(false)
+    setInitialSyncError('')
+    void syncUser(userId, { full: true }).then(async (result) => {
+      if (!active) return
+      const cachedProfile = await db.profiles.where('user_id').equals(userId).first()
+      if (result.error && !cachedProfile) {
+        setInitialSyncError('Deine Cloud-Daten konnten nicht geladen werden. Prüfe deine Verbindung und versuche es erneut.')
+        return
+      }
+      if (!navigator.onLine && !cachedProfile) {
+        setInitialSyncError('Für die erste Einrichtung auf diesem Gerät wird kurz eine Internetverbindung benötigt.')
+        return
+      }
+      setInitialSyncReady(true)
+    })
     const sync = () => void syncUser(userId)
     const onlineHandler = () => { setOnline(true); sync() }
     const offlineHandler = () => setOnline(false)
@@ -76,7 +95,7 @@ export function App() {
     window.addEventListener('online', onlineHandler)
     window.addEventListener('offline', offlineHandler)
     document.addEventListener('visibilitychange', visibilityHandler)
-    const interval = window.setInterval(sync, 15_000)
+    const interval = window.setInterval(sync, 10_000)
     return () => {
       active = false
       window.removeEventListener('online', onlineHandler)
@@ -84,7 +103,7 @@ export function App() {
       document.removeEventListener('visibilitychange', visibilityHandler)
       window.clearInterval(interval)
     }
-  }, [demoMode, userId])
+  }, [demoMode, syncAttempt, userId])
 
   const resolvedTheme = useResolvedTheme(settings?.theme ?? 'system')
 
@@ -93,6 +112,15 @@ export function App() {
   }
   if (!authReady) return <div data-theme={resolvedTheme}><LoadingScreen /></div>
   if (!session && !demoMode) return <div data-theme={resolvedTheme}><AuthScreen /></div>
+  if (initialSyncError) return (
+    <div data-theme={resolvedTheme}>
+      <main className="center-screen">
+        <div className="brand-mark">B</div>
+        <div><h1>Abgleich nicht möglich</h1><p className="muted">{initialSyncError}</p></div>
+        <Button onClick={() => setSyncAttempt((attempt) => attempt + 1)}>Erneut versuchen</Button>
+      </main>
+    </div>
+  )
   if (!initialSyncReady) return <div data-theme={resolvedTheme}><LoadingScreen label="Deine Daten werden geladen" /></div>
   if (!profile?.onboarding_completed) return <div data-theme={resolvedTheme}><Onboarding userId={userId!} onComplete={() => demoMode ? undefined : void syncUser(userId!)} /></div>
 
