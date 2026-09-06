@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Cloud, LogOut, Moon, RefreshCw, Sun, UserRound } from 'lucide-react'
+import { Cloud, KeyRound, LogOut, Moon, RefreshCw, Sun, UserRound } from 'lucide-react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { Button, Card, Field, InfoNote, Modal, SelectField } from '../../components/ui'
 import { db, saveRecord, syncUser } from '../../lib/db'
@@ -29,6 +29,9 @@ export function SettingsPanel({
   const [syncing, setSyncing] = useState(false)
   const [status, setStatus] = useState('')
   const [loggingOut, setLoggingOut] = useState(false)
+  const [password, setPassword] = useState('')
+  const [passwordConfirmation, setPasswordConfirmation] = useState('')
+  const [savingPassword, setSavingPassword] = useState(false)
 
   async function setTheme(theme: ThemeMode) {
     if (settings) await saveRecord('user_settings', { ...settings, theme })
@@ -68,12 +71,41 @@ export function SettingsPanel({
     onSignedOut()
   }
 
+  async function savePassword() {
+    setStatus('')
+    if (password.length < 8) {
+      setStatus('Das Passwort muss mindestens 8 Zeichen haben.')
+      return
+    }
+    if (password !== passwordConfirmation) {
+      setStatus('Die beiden Passwörter stimmen nicht überein.')
+      return
+    }
+    setSavingPassword(true)
+    const { error } = await supabase.auth.updateUser({ password })
+    setSavingPassword(false)
+    if (error) {
+      setStatus('Passwort konnte nicht gespeichert werden. Bitte versuche es später erneut.')
+      return
+    }
+    setPassword('')
+    setPasswordConfirmation('')
+    setStatus('Dein Passwort wurde gespeichert. Du kannst dich künftig per Link oder Passwort anmelden.')
+  }
+
   return (
     <>
       <Modal open={open && !editingProfile} title="Einstellungen" onClose={onClose}>
         {!demo && <Card className="stack">
           <div className="row"><div className="feature-icon"><UserRound size={21} /></div><div><strong>{profile.display_name}</strong><span className="small muted" style={{ display: 'block' }}>Persönliches Profil</span></div></div>
           <Button variant="secondary" full onClick={() => setEditingProfile(true)}>Profildaten bearbeiten</Button>
+        </Card>}
+
+        {!demo && <Card className="stack">
+          <div className="row"><div className="feature-icon"><KeyRound size={21} /></div><div><strong>Passwort festlegen</strong><span className="small muted" style={{ display: 'block' }}>Optional für eine zweite Anmeldemöglichkeit</span></div></div>
+          <Field label="Neues Passwort" type="password" autoComplete="new-password" minLength={8} placeholder="Mindestens 8 Zeichen" value={password} onChange={(event) => setPassword(event.target.value)} />
+          <Field label="Passwort wiederholen" type="password" autoComplete="new-password" minLength={8} value={passwordConfirmation} onChange={(event) => setPasswordConfirmation(event.target.value)} />
+          <Button variant="secondary" full disabled={savingPassword || password.length < 8 || passwordConfirmation.length < 8} onClick={() => void savePassword()}>{savingPassword ? 'Wird gespeichert …' : 'Passwort speichern'}</Button>
         </Card>}
 
         <Card className="stack">

@@ -4,10 +4,12 @@ import { Button, Field } from '../../components/ui'
 import { supabase } from '../../lib/supabase'
 
 type AuthMode = 'login' | 'register'
+type LoginMethod = 'magic-link' | 'password'
 type SentMessage = 'registration' | 'magic-link' | null
 
 export function AuthScreen() {
   const [mode, setMode] = useState<AuthMode>('login')
+  const [loginMethod, setLoginMethod] = useState<LoginMethod>('magic-link')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [passwordConfirmation, setPasswordConfirmation] = useState('')
@@ -21,11 +23,16 @@ export function AuthScreen() {
     setPasswordConfirmation('')
     setError('')
     setSent(null)
+    if (nextMode === 'login') setLoginMethod('magic-link')
   }
 
   async function submit(event: FormEvent) {
     event.preventDefault()
     setError('')
+    if (mode === 'login' && loginMethod === 'magic-link') {
+      await sendMagicLink()
+      return
+    }
     if (password.length < 8) {
       setError('Das Passwort muss mindestens 8 Zeichen haben.')
       return
@@ -110,30 +117,39 @@ export function AuthScreen() {
 
           <div className="auth-panel__heading">
             <h2>{mode === 'login' ? 'Willkommen zurück' : 'Konto erstellen'}</h2>
-            <p>{mode === 'login' ? 'Deine Cloud-Daten werden nach dem Login auf dieses Gerät geladen.' : 'Deine Einträge werden deinem persönlichen Konto zugeordnet.'}</p>
+            <p>{mode === 'login'
+              ? loginMethod === 'magic-link'
+                ? 'Du brauchst kein Passwort. Wir senden dir einen einmaligen Anmeldelink.'
+                : 'Melde dich mit deinem bereits festgelegten Passwort an.'
+              : 'Deine Einträge werden deinem persönlichen Konto zugeordnet.'}</p>
           </div>
 
           <Field label="E-Mail-Adresse" type="email" autoComplete="email" inputMode="email" placeholder="name@beispiel.de" value={email} onChange={(event) => setEmail(event.target.value)} required />
-          <Field label="Passwort" type="password" autoComplete={mode === 'login' ? 'current-password' : 'new-password'} placeholder="Mindestens 8 Zeichen" value={password} onChange={(event) => setPassword(event.target.value)} minLength={8} required />
+          {(mode === 'register' || loginMethod === 'password') && (
+            <Field label="Passwort" type="password" autoComplete={mode === 'login' ? 'current-password' : 'new-password'} placeholder="Mindestens 8 Zeichen" value={password} onChange={(event) => setPassword(event.target.value)} minLength={8} required />
+          )}
           {mode === 'register' && (
             <Field label="Passwort wiederholen" type="password" autoComplete="new-password" value={passwordConfirmation} onChange={(event) => setPasswordConfirmation(event.target.value)} minLength={8} required />
           )}
           {mode === 'register' && <p className="auth-note">Schon einmal mit dieser E-Mail registriert? Dann „Anmelden“ wählen. Für bestehende Konten wird keine neue Registrierungs-Mail verschickt.</p>}
 
           {error && <p className="form-error" role="alert">{error}</p>}
-          <Button type="submit" full disabled={Boolean(loading) || !email.trim() || password.length < 8}>
-            {mode === 'login' ? <LockKeyhole size={18} /> : <UserPlus size={18} />}
-            {loading === 'password' ? 'Bitte warten …' : mode === 'login' ? 'Sicher anmelden' : 'Konto erstellen'}
+          <Button type="submit" full disabled={Boolean(loading) || !email.trim() || ((mode === 'register' || loginMethod === 'password') && password.length < 8)}>
+            {mode === 'login' && loginMethod === 'magic-link' ? <Link2 size={18} /> : mode === 'login' ? <LockKeyhole size={18} /> : <UserPlus size={18} />}
+            {loading
+              ? loading === 'magic-link' ? 'Link wird gesendet …' : 'Bitte warten …'
+              : mode === 'register' ? 'Konto erstellen' : loginMethod === 'magic-link' ? 'Anmeldelink senden' : 'Mit Passwort anmelden'}
             {!loading && <ArrowRight size={18} />}
           </Button>
 
           {mode === 'login' && (
-            <Button type="button" variant="secondary" full disabled={Boolean(loading)} onClick={() => void sendMagicLink()}>
-              <Link2 size={18} /> {loading === 'magic-link' ? 'Link wird gesendet …' : 'Stattdessen E-Mail-Link senden'}
+            <Button type="button" variant="secondary" full disabled={Boolean(loading)} onClick={() => { setLoginMethod((method) => method === 'magic-link' ? 'password' : 'magic-link'); setPassword(''); setError('') }}>
+              {loginMethod === 'magic-link' ? <LockKeyhole size={18} /> : <Link2 size={18} />}
+              {loginMethod === 'magic-link' ? 'Stattdessen mit Passwort anmelden' : 'Ohne Passwort per E-Mail-Link anmelden'}
             </Button>
           )}
           <Button type="button" variant="ghost" full onClick={() => window.location.assign('/demo')}>Ohne Anmeldung fortfahren</Button>
-          <p className="auth-note">Du bleibst auf diesem Gerät angemeldet, bis du dich in den Einstellungen abmeldest.</p>
+          <p className="auth-note">Altes Bont-Konto ohne Passwort? Nutze den Anmeldelink. Deine bisherigen Daten bleiben erhalten.</p>
         </form>
       )}
     </main>
