@@ -68,6 +68,7 @@ const usdaNutrients = [
 
 const germanFoodTerms: Array<[RegExp, string]> = [
   [/\bhaferflocken\b/giu, 'oats'],
+  [/\bnudeln?\b/giu, 'pasta'],
   [/\bhähnchenbrust\b/giu, 'chicken breast'],
   [/\bhuehnchenbrust\b/giu, 'chicken breast'],
   [/\bsüßkartoffeln?\b/giu, 'sweet potato'],
@@ -174,13 +175,13 @@ async function searchUsda(query: string) {
 
   const data = await result.json() as UsdaSearchResponse
   return (data.foods ?? [])
-    .map(usdaFoodToProduct)
+    .map((food) => usdaFoodToProduct(food, query, translatedQuery))
     .filter((product): product is NonNullable<ReturnType<typeof usdaFoodToProduct>> => Boolean(product))
-    .sort((a, b) => micronutrientCount(b.nutriments) - micronutrientCount(a.nutriments))
-    .slice(0, 6)
+    .sort((a, b) => usdaProductScore(b, translatedQuery) - usdaProductScore(a, translatedQuery))
+    .slice(0, 8)
 }
 
-function usdaFoodToProduct(food: UsdaFood) {
+function usdaFoodToProduct(food: UsdaFood, originalQuery: string, translatedQuery: string) {
   if (!food.fdcId || !food.description) return null
   const nutriments: Record<string, number | string> = {}
 
@@ -191,20 +192,24 @@ function usdaFoodToProduct(food: UsdaFood) {
       return definition.names.some((alias) => name === alias || name.startsWith(`${alias},`))
     })
     if (typeof nutrient?.value !== 'number' || !Number.isFinite(nutrient.value) || nutrient.value < 0) continue
-    nutriments[`${definition.key}_100g`] = nutrient.value
-    nutriments[`${definition.key}_unit`] = normalizeUsdaUnit(nutrient.unitName || definition.unit)
+    const sourceUnit = normalizeUsdaUnit(nutrient.unitName || definition.unit)
+    nutriments[`${definition.key}_100g`] = definition.key === 'energy-kcal' && sourceUnit === 'kj'
+      ? nutrient.value / 4.184
+      : nutrient.value
+    nutriments[`${definition.key}_unit`] = definition.key === 'energy-kcal' ? 'kcal' : sourceUnit
   }
 
   if (typeof nutriments['energy-kcal_100g'] !== 'number') return null
   return {
     code: `usda-${food.fdcId}`,
-    product_name: sentenceCase(food.description),
+    product_name: localizeUsdaName(food.description, originalQuery, translatedQuery),
     brands: food.brandOwner || food.brandName || 'USDA FoodData Central',
     quantity: '100 g',
     product_quantity_unit: 'g',
     nutriments,
     source: 'usda',
     data_type: food.dataType,
+    search_match: originalQuery,
   }
 }
 
@@ -216,6 +221,32 @@ function normalizeUsdaUnit(unit: string) {
 
 function micronutrientCount(nutriments: Record<string, number | string>) {
   return usdaNutrients.slice(4).filter(({ key }) => typeof nutriments[`${key}_100g`] === 'number').length
+}
+
+function usdaProductScore(product: NonNullable<ReturnType<typeof usdaFoodToProduct>>, translatedQuery: string) {
+  const name = String(product.product_name).toLowerCase()
+  const translated = translatedQuery.toLowerCase()
+  const firstTerm = translated.split(/\s+/)[0]
+  let score = micronutrientCount(product.nutriments) * 2
+  if (name.startsWith(firstTerm)) score += 45
+  if (/\b(raw|plain|cooked|dry|uncooked|fresh)\b/.test(name)) score += 35
+  if (/\b(dehydrated|powder|chips|pudding|nectar|salad|mixture|mix|with|sauce|baked)\b/.test(name)) score -= 30
+  if (product.data_type === 'Foundation') score += 25
+  else if (product.data_type === 'SR Legacy') score += 20
+  else if (product.data_type === 'Survey (FNDDS)') score += 12
+  return score
+}
+
+function localizeUsdaName(description: string, originalQuery: string, translatedQuery: string) {
+  const name = sentenceCase(description)
+  const english = translatedQuery.toLowerCase()
+  const german = originalQuery.trim().replace(/(^|\s)\S/g, (letter) => letter.toLocaleUpperCase('de-DE'))
+  if (/^pasta,?\s+cooked/i.test(description)) return 'Nudeln, gekocht'
+  if (/^pasta,?\s+(dry|uncooked)/i.test(description)) return 'Nudeln, trocken'
+  if (/^banana,?\s+raw/i.test(description)) return 'Banane, roh'
+  if (/^egg,?\s+whole,?\s+raw/i.test(description)) return 'Ei, ganz und roh'
+  if (/^oats?,?\s+/i.test(description)) return name.replace(/^Oats?/i, 'Haferflocken')
+  return originalQuery.toLowerCase() !== english ? `${german} · ${name}` : name
 }
 
 function sentenceCase(value: string) {

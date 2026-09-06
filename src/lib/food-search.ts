@@ -10,6 +10,7 @@ export interface FoodSearchResult {
   micronutrientsPer100: Record<string, number>
   source: 'open_food_facts' | 'usda'
   dataType?: string
+  matchQuery?: string
 }
 
 interface OpenFoodFactsProduct {
@@ -22,6 +23,7 @@ interface OpenFoodFactsProduct {
   nutriments?: Record<string, unknown>
   source?: 'open_food_facts' | 'usda'
   data_type?: string
+  search_match?: string
 }
 
 interface OpenFoodFactsResponse {
@@ -97,6 +99,7 @@ function normalizeProduct(product: OpenFoodFactsProduct): FoodSearchResult | nul
     micronutrientsPer100,
     source: product.source === 'usda' ? 'usda' : 'open_food_facts',
     dataType: cleanText(product.data_type) || undefined,
+    matchQuery: cleanText(product.search_match) || undefined,
   }
 }
 
@@ -139,6 +142,7 @@ function relevanceScore(product: FoodSearchResult, needle: string) {
   const brand = product.brand.toLocaleLowerCase('de-DE')
   const nutrientBonus = Math.min(Object.keys(product.micronutrientsPer100).length, 17) / 100
   if (name === needle) return 4 + nutrientBonus
+  if (product.matchQuery?.toLocaleLowerCase('de-DE') === needle) return 4.5 + nutrientBonus
   if (name.startsWith(needle)) return 3 + nutrientBonus
   if (name.includes(needle)) return 2 + nutrientBonus
   if (brand.includes(needle)) return 1 + nutrientBonus

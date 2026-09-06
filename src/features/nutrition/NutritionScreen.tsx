@@ -373,7 +373,7 @@ function FoodSearchModal({
                   return (
                     <button className="food-result" key={`${product.id}-${index}`} onClick={() => useProduct(product)}>
                       <span className="food-result__icon"><Utensils size={18} /></span>
-                      <span><strong>{product.name}</strong><small>{product.brand || 'Marke nicht angegeben'} · {Math.round(product.caloriesPer100)} kcal / 100 {product.unit}</small><small className={microCount ? 'food-result__micros food-result__micros--ready' : 'food-result__micros'}>{microCount ? `${microCount} Mikronährstoffe enthalten` : 'Keine Mikronährstoffdaten'}</small></span>
+                      <span><strong>{product.name}</strong><small>{product.brand || 'Marke nicht angegeben'} · {Math.round(product.caloriesPer100)} kcal / 100 {product.unit}</small><small className={microCount ? 'food-result__micros food-result__micros--ready' : 'food-result__micros'}>{product.source === 'usda' ? 'USDA-Analyse · ' : ''}{microCount ? `${microCount} Mikronährstoffe enthalten` : 'Keine Mikronährstoffdaten'}</small></span>
                       <Plus size={18} />
                     </button>
                   )

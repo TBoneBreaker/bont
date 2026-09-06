@@ -88,4 +88,18 @@ describe('searchFoods', () => {
       micronutrientsPer100: { potassium: 358, vitamin_b6: 0.367 },
     }))
   })
+
+  it('puts the detailed generic match before incomplete product variants', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ products: [
+        { code: 'off-1', product_name_de: 'Nudeln', brands: 'Penny', source: 'open_food_facts', nutriments: { 'energy-kcal_100g': 359 } },
+        { code: 'usda-1', product_name: 'Nudeln, trocken', brands: 'USDA FoodData Central', source: 'usda', search_match: 'Nudeln', nutriments: { 'energy-kcal_100g': 371, iron_100g: 3.3, iron_unit: 'mg' } },
+      ] }),
+    }))
+
+    const results = await searchFoods('Nudeln')
+    expect(results.map((product) => product.id)).toEqual(['usda-1', 'off-1'])
+    expect(results[0].micronutrientsPer100).toEqual({ iron: 3.3 })
+  })
 })

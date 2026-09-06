@@ -93,10 +93,11 @@ export function AuthScreen() {
             <h2>{sent === 'registration' ? 'E-Mail bestätigen' : 'Login-Link ist unterwegs'}</h2>
             <p className="muted">
               {sent === 'registration'
-                ? <>Bestätige die Registrierung über die Nachricht an <strong>{email}</strong>. Danach kannst du dich mit deinem Passwort anmelden.</>
+                ? <>Falls <strong>{email}</strong> neu ist, wurde eine Bestätigung angefordert. Prüfe auch Spam. Kommt nichts an, nutze „Anmelden“ – die Adresse kann bereits zu einem Konto gehören.</>
                 : <>Öffne den einmaligen Login-Link an <strong>{email}</strong>.</>}
             </p>
           </div>
+          <Button full onClick={() => { setMode('login'); setSent(null); setPassword('') }}>Zum Anmelden</Button>
           <Button variant="secondary" full onClick={() => setSent(null)}>Zurück</Button>
           <Button type="button" variant="ghost" full onClick={() => window.location.assign('/demo')}>Ohne Konto testen</Button>
         </section>
@@ -117,6 +118,7 @@ export function AuthScreen() {
           {mode === 'register' && (
             <Field label="Passwort wiederholen" type="password" autoComplete="new-password" value={passwordConfirmation} onChange={(event) => setPasswordConfirmation(event.target.value)} minLength={8} required />
           )}
+          {mode === 'register' && <p className="auth-note">Schon einmal mit dieser E-Mail registriert? Dann „Anmelden“ wählen. Für bestehende Konten wird keine neue Registrierungs-Mail verschickt.</p>}
 
           {error && <p className="form-error" role="alert">{error}</p>}
           <Button type="submit" full disabled={Boolean(loading) || !email.trim() || password.length < 8}>
