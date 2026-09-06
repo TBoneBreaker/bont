@@ -89,7 +89,7 @@ export function SettingsPanel({
           <Button variant="secondary" full disabled={!online || syncing} onClick={() => void sync()}><RefreshCw size={17} className={syncing ? 'spin' : ''} /> {syncing ? 'Synchronisiert …' : 'Jetzt synchronisieren'}</Button>
         </Card>}
         {status && <InfoNote>{status}</InfoNote>}
-        <Button variant={demo ? 'secondary' : 'danger'} full disabled={loggingOut} onClick={() => void logout()}><LogOut size={18} /> {demo ? 'Demo verlassen' : loggingOut ? 'Wird abgemeldet …' : 'Abmelden'}</Button>
+        <Button variant={demo ? 'secondary' : 'danger'} full disabled={loggingOut} onClick={() => void logout()}><LogOut size={18} /> {demo ? 'Zur Anmeldung' : loggingOut ? 'Wird abgemeldet …' : 'Abmelden'}</Button>
         <p className="auth-note">{demo ? 'Änderungen in der Demo bleiben ausschließlich auf diesem Gerät.' : 'Bont speichert laufende Trainings und Änderungen zuerst lokal. Cloud-Daten werden pro Nutzer durch Zugriffsregeln getrennt.'}</p>
       </Modal>
       <ProfileEditor open={open && editingProfile} profile={profile} onClose={() => setEditingProfile(false)} />

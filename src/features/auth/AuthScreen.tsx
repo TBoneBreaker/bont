@@ -22,7 +22,9 @@ export function AuthScreen() {
     })
     setLoading(false)
     if (authError) {
-      setError(authError.message)
+      setError(/rate limit/i.test(authError.message)
+        ? 'Zu viele E-Mails angefordert. Du kannst Bont sofort ohne Anmeldung testen oder es später erneut versuchen.'
+        : authError.message)
       return
     }
     setSent(true)
@@ -47,6 +49,7 @@ export function AuthScreen() {
             <p className="muted">Öffne die Nachricht an <strong>{email}</strong> auf diesem Gerät. Danach bleibst du angemeldet.</p>
           </div>
           <Button variant="secondary" full onClick={() => setSent(false)}>Andere E-Mail verwenden</Button>
+          <Button type="button" variant="ghost" full onClick={() => window.location.assign('/demo')}>Jetzt ohne Anmeldung fortfahren</Button>
         </section>
       ) : (
         <form className="auth-panel" onSubmit={submit}>
@@ -62,9 +65,9 @@ export function AuthScreen() {
           />
           {error && <p className="small" role="alert" style={{ color: 'var(--danger)', margin: 0 }}>{error}</p>}
           <Button type="submit" full disabled={loading || !email.trim()}>
-            <Mail size={18} /> {loading ? 'Wird gesendet …' : 'Sicher anmelden'} <ArrowRight size={18} />
+            <Mail size={18} /> {loading ? 'Wird gesendet …' : 'Anmelden oder registrieren'} <ArrowRight size={18} />
           </Button>
-          <Button type="button" variant="secondary" full onClick={() => window.location.assign('/demo')}>Ohne Anmeldung ansehen</Button>
+          <Button type="button" variant="secondary" full onClick={() => window.location.assign('/demo')}>Ohne Anmeldung fortfahren</Button>
           <p className="auth-note">Kein Passwort nötig. Anmeldung und Registrierung erfolgen über einen einmaligen E-Mail-Link.</p>
         </form>
       )}

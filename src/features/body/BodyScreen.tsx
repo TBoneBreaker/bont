@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { CalendarDays, Check, Footprints, Gauge, Plus, Scale, Sparkles, Utensils } from 'lucide-react'
-import { Button, Card, Field, InfoNote, Metric, Modal, NumberStepper, ProgressBar } from '../../components/ui'
+import { CalendarDays, Check, ChevronLeft, ChevronRight, Footprints, Gauge, Plus, Scale, Sparkles, Utensils } from 'lucide-react'
+import { Button, Card, Field, Metric, Modal, NumberStepper, ProgressBar } from '../../components/ui'
 import { db, saveRecord } from '../../lib/db'
 import { estimateMaintenance, weeklyAverages } from '../../lib/maintenance'
 import type { BodyEntry } from '../../types'
@@ -54,9 +54,9 @@ export function BodyScreen({ userId }: { userId: string }) {
   const balance = maintenance !== null && todayCalories !== null ? Math.round(todayCalories - maintenance) : null
 
   const chartData = useMemo(() => ({
-    calories: entries.filter((entry): entry is BodyEntry & { calories: number } => entry.calories !== null).slice(-14).map((entry) => ({ date: entry.entry_date, value: entry.calories! })),
-    steps: entries.filter((entry): entry is BodyEntry & { steps: number } => entry.steps !== null).slice(-14).map((entry) => ({ date: entry.entry_date, value: entry.steps! })),
-    weight: entries.filter((entry): entry is BodyEntry & { weight_kg: number } => entry.weight_kg !== null).slice(-14).map((entry) => ({ date: entry.entry_date, value: entry.weight_kg! })),
+    calories: entries.filter((entry): entry is BodyEntry & { calories: number } => entry.calories !== null).map((entry) => ({ date: entry.entry_date, value: entry.calories! })),
+    steps: entries.filter((entry): entry is BodyEntry & { steps: number } => entry.steps !== null).map((entry) => ({ date: entry.entry_date, value: entry.steps! })),
+    weight: entries.filter((entry): entry is BodyEntry & { weight_kg: number } => entry.weight_kg !== null).map((entry) => ({ date: entry.entry_date, value: entry.weight_kg! })),
   }), [entries])
 
   function openEntry() {
@@ -101,6 +101,7 @@ export function BodyScreen({ userId }: { userId: string }) {
           values={chartData.calories}
           tone="orange"
           format={(value) => `${Math.round(value).toLocaleString('de-DE')} kcal`}
+          formatAxis={(value) => compactNumber(value)}
         />
         <MetricChart
           icon={<Footprints size={18} />}
@@ -108,6 +109,7 @@ export function BodyScreen({ userId }: { userId: string }) {
           values={chartData.steps}
           tone="cyan"
           format={(value) => Math.round(value).toLocaleString('de-DE')}
+          formatAxis={(value) => compactNumber(value)}
         />
         <MetricChart
           icon={<Scale size={18} />}
@@ -115,6 +117,7 @@ export function BodyScreen({ userId }: { userId: string }) {
           values={chartData.weight}
           tone="violet"
           format={(value) => `${value.toLocaleString('de-DE', { maximumFractionDigits: 1 })} kg`}
+          formatAxis={(value) => value.toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}
         />
       </div>
 
@@ -150,10 +153,6 @@ export function BodyScreen({ userId }: { userId: string }) {
             <p className="tiny muted">Sobald an sieben Tagen Gewicht und Kalorien vorliegen, ersetzt Bont die Startschätzung automatisch.</p>
           </div>
         )}
-      </Card>
-
-      <Card className="card--soft">
-        <InfoNote>Gewicht, Kalorien und Schritte werden getrennt gespeichert. Trage morgens nur dein Gewicht ein und ergänze Kalorien oder Schritte später – vorhandene Werte bleiben erhalten.</InfoNote>
       </Card>
 
       <Modal open={entryOpen} title="Werte eintragen" onClose={() => setEntryOpen(false)}>
@@ -198,45 +197,118 @@ function MetricChart({
   values,
   tone,
   format,
+  formatAxis,
 }: {
   icon: ReactNode
   label: string
   values: { date: string; value: number }[]
   tone: 'orange' | 'cyan' | 'violet'
   format: (value: number) => string
+  formatAxis: (value: number) => string
 }) {
-  const latest = values.at(-1)
-  const min = values.length ? Math.min(...values.map((point) => point.value)) : 0
-  const max = values.length ? Math.max(...values.map((point) => point.value)) : 1
-  const range = max - min || Math.max(Math.abs(max) * 0.05, 1)
-  const hasRange = max !== min
-  const points = values.map((point, index) => ({
-    x: values.length === 1 ? 160 : 12 + index * (296 / (values.length - 1)),
-    y: hasRange ? 86 - ((point.value - min) / range) * 58 : 57,
+  const pageSize = 7
+  const pageCount = Math.max(1, Math.ceil(values.length / pageSize))
+  const [page, setPage] = useState(0)
+  const pointerStart = useRef<number | null>(null)
+
+  useEffect(() => {
+    setPage((current) => Math.min(current, pageCount - 1))
+  }, [pageCount])
+
+  const end = Math.max(0, values.length - page * pageSize)
+  const start = Math.max(0, end - pageSize)
+  const visibleValues = values.slice(start, end)
+  const latest = visibleValues.at(-1)
+  const rawMin = visibleValues.length ? Math.min(...visibleValues.map((point) => point.value)) : 0
+  const rawMax = visibleValues.length ? Math.max(...visibleValues.map((point) => point.value)) : 1
+  const rawRange = rawMax - rawMin
+  const padding = rawRange ? rawRange * 0.14 : Math.max(Math.abs(rawMax) * 0.025, 0.5)
+  const yMin = rawMin - padding
+  const yMax = rawMax + padding
+  const range = yMax - yMin || 1
+  const plotLeft = 54
+  const plotRight = 344
+  const plotTop = 20
+  const plotBottom = 138
+  const points = visibleValues.map((point, index) => ({
+    x: visibleValues.length === 1 ? (plotLeft + plotRight) / 2 : plotLeft + index * ((plotRight - plotLeft) / (visibleValues.length - 1)),
+    y: plotBottom - ((point.value - yMin) / range) * (plotBottom - plotTop),
   }))
   const line = points.map((point) => `${point.x},${point.y}`).join(' ')
-  const firstDate = values[0]?.date
+  const yTicks = [yMax, (yMax + yMin) / 2, yMin]
+  const firstDate = visibleValues[0]?.date
+  const showOlder = page < pageCount - 1
+  const showNewer = page > 0
+
+  function changePage(next: number) {
+    setPage(Math.max(0, Math.min(pageCount - 1, next)))
+  }
+
+  function finishSwipe(clientX: number) {
+    if (pointerStart.current === null) return
+    const distance = clientX - pointerStart.current
+    pointerStart.current = null
+    if (Math.abs(distance) < 42) return
+    changePage(distance > 0 ? page + 1 : page - 1)
+  }
 
   return (
     <Card className={`metric-chart metric-chart--${tone}`}>
       <div className="metric-chart__head">
         <span className="metric-chart__icon">{icon}</span>
         <div><span>{label}</span><strong>{latest ? format(latest.value) : 'Noch kein Wert'}</strong></div>
+        {values.length > pageSize && <span className="metric-chart__range">{page === 0 ? 'Neueste 7' : `${start + 1}–${end} von ${values.length}`}</span>}
       </div>
-      <div className="metric-chart__plot">
-        {values.length ? (
-          <svg viewBox="0 0 320 104" preserveAspectRatio="none" role="img" aria-label={`${label}: Verlauf der letzten ${values.length} Einträge`}>
-            <line x1="12" x2="308" y1="87" y2="87" className="metric-chart__baseline" />
-            {values.length > 1 && <polyline points={line} className="metric-chart__line" />}
-            {points.map((point, index) => <circle key={`${values[index].date}-${index}`} cx={point.x} cy={point.y} r={index === points.length - 1 ? 4.5 : 2.5} className="metric-chart__point" />)}
+      <div
+        className="metric-chart__plot"
+        onPointerDown={(event) => { pointerStart.current = event.clientX }}
+        onPointerUp={(event) => finishSwipe(event.clientX)}
+        onPointerCancel={() => { pointerStart.current = null }}
+      >
+        {visibleValues.length ? (
+          <svg viewBox="0 0 360 174" role="img" aria-label={`${label}: ${visibleValues.length} Einträge von ${formatDate(firstDate!)} bis ${formatDate(latest!.date)}`}>
+            <title>{`${label} von ${formatDate(firstDate!)} bis ${formatDate(latest!.date)}`}</title>
+            {yTicks.map((tick, index) => {
+              const y = plotTop + index * ((plotBottom - plotTop) / 2)
+              return (
+                <g key={tick}>
+                  <line x1={plotLeft} x2={plotRight} y1={y} y2={y} className="metric-chart__grid" />
+                  <text x={plotLeft - 8} y={y + 3} textAnchor="end" className="metric-chart__axis-label">{formatAxis(tick)}</text>
+                </g>
+              )
+            })}
+            <line x1={plotLeft} x2={plotLeft} y1={plotTop} y2={plotBottom} className="metric-chart__axis" />
+            <line x1={plotLeft} x2={plotRight} y1={plotBottom} y2={plotBottom} className="metric-chart__axis" />
+            {visibleValues.length > 1 && <polyline points={line} className="metric-chart__line" />}
+            {points.map((point, index) => (
+              <g key={`${visibleValues[index].date}-${index}`}>
+                <circle cx={point.x} cy={point.y} r={index === points.length - 1 ? 4.5 : 3} className="metric-chart__point">
+                  <title>{`${formatDate(visibleValues[index].date)}: ${format(visibleValues[index].value)}`}</title>
+                </circle>
+                <text x={point.x} y="158" textAnchor="middle" className="metric-chart__date-label">{formatDate(visibleValues[index].date)}</text>
+              </g>
+            ))}
           </svg>
         ) : <div className="metric-chart__empty">Mit deinem ersten Eintrag entsteht hier der Verlauf.</div>}
       </div>
-      {firstDate && latest && <div className="metric-chart__dates"><span>{formatDate(firstDate)}</span><span>{formatDate(latest.date)}</span></div>}
+      {values.length > pageSize && (
+        <div className="metric-chart__pager">
+          <button type="button" disabled={!showOlder} onClick={() => changePage(page + 1)} aria-label={`${label}: ältere Einträge zeigen`}><ChevronLeft size={17} /> Älter</button>
+          <span>7 Werte pro Ansicht</span>
+          <button type="button" disabled={!showNewer} onClick={() => changePage(page - 1)} aria-label={`${label}: neuere Einträge zeigen`}>Neuer <ChevronRight size={17} /></button>
+        </div>
+      )}
     </Card>
   )
 }
 
 function formatDate(value: string) {
   return new Intl.DateTimeFormat('de-DE', { day: '2-digit', month: '2-digit' }).format(new Date(`${value}T12:00:00`))
+}
+
+function compactNumber(value: number) {
+  return new Intl.NumberFormat('de-DE', {
+    notation: Math.abs(value) >= 1000 ? 'compact' : 'standard',
+    maximumFractionDigits: Math.abs(value) >= 1000 ? 1 : 0,
+  }).format(Math.max(0, value))
 }

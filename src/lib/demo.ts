@@ -3,15 +3,10 @@ import { DEMO_USER_ID } from './demo-constants'
 import { createBase } from '../types'
 import type {
   BodyEntry,
-  Exercise,
   FoodEntry,
   MealSlot,
   Profile,
-  TrainingDay,
-  TrainingPlan,
   UserSettings,
-  WorkoutSession,
-  WorkoutSet,
 } from '../types'
 
 const dateOffset = (days: number) => {
@@ -19,8 +14,6 @@ const dateOffset = (days: number) => {
   date.setUTCDate(date.getUTCDate() + days)
   return date.toISOString().slice(0, 10)
 }
-
-const atNoon = (date: string) => `${date}T12:00:00.000Z`
 
 let seedPromise: Promise<void> | null = null
 
@@ -30,12 +23,11 @@ export function seedDemoData() {
 }
 
 async function runSeedDemoData() {
-  const [existingProfile, existingPlan, existingFood] = await Promise.all([
+  const [existingProfile, existingFood] = await Promise.all([
     db.profiles.where('user_id').equals(DEMO_USER_ID).first(),
-    db.training_plans.get('demo-plan-ppl'),
     db.food_entries.get('demo-food-skyr'),
   ])
-  if (existingProfile && existingPlan && existingFood) return
+  if (existingProfile && existingFood) return
 
   const profile: Profile = {
     ...createBase(DEMO_USER_ID, 'demo-profile'),
@@ -55,70 +47,6 @@ async function runSeedDemoData() {
     calorie_adjustment: 200,
     preliminary_maintenance: 2550,
   }
-  const plan: TrainingPlan = {
-    ...createBase(DEMO_USER_ID, 'demo-plan-ppl'),
-    name: 'Push Pull Legs',
-    split_size: 3,
-    notes: 'Fokus auf saubere Technik und progressive Steigerung.',
-    is_active: true,
-    is_template: false,
-  }
-  const days: TrainingDay[] = [
-    { ...createBase(DEMO_USER_ID, 'demo-day-push'), plan_id: plan.id, name: 'Push', order_index: 0 },
-    { ...createBase(DEMO_USER_ID, 'demo-day-pull'), plan_id: plan.id, name: 'Pull', order_index: 1 },
-    { ...createBase(DEMO_USER_ID, 'demo-day-legs'), plan_id: plan.id, name: 'Legs', order_index: 2 },
-  ]
-  const exercises: Exercise[] = [
-    { ...createBase(DEMO_USER_ID, 'demo-ex-bench'), training_day_id: days[0].id, name: 'Bankdrücken', target_sets: 3, order_index: 0 },
-    { ...createBase(DEMO_USER_ID, 'demo-ex-shoulder'), training_day_id: days[0].id, name: 'Schulterdrücken', target_sets: 2, order_index: 1 },
-    { ...createBase(DEMO_USER_ID, 'demo-ex-triceps'), training_day_id: days[0].id, name: 'Trizeps Extension', target_sets: 2, order_index: 2 },
-    { ...createBase(DEMO_USER_ID, 'demo-ex-pulldown'), training_day_id: days[1].id, name: 'Latzug', target_sets: 3, order_index: 0 },
-    { ...createBase(DEMO_USER_ID, 'demo-ex-row'), training_day_id: days[1].id, name: 'Rudern', target_sets: 3, order_index: 1 },
-    { ...createBase(DEMO_USER_ID, 'demo-ex-curl'), training_day_id: days[1].id, name: 'Bizeps Curls', target_sets: 2, order_index: 2 },
-    { ...createBase(DEMO_USER_ID, 'demo-ex-squat'), training_day_id: days[2].id, name: 'Kniebeugen', target_sets: 3, order_index: 0 },
-    { ...createBase(DEMO_USER_ID, 'demo-ex-legcurl'), training_day_id: days[2].id, name: 'Beinbeuger', target_sets: 3, order_index: 1 },
-  ]
-
-  const sessionDates = [-18, -11, -4].map(dateOffset)
-  const sessions: WorkoutSession[] = sessionDates.map((date, index) => ({
-    ...createBase(DEMO_USER_ID, `demo-session-${index + 1}`),
-    training_plan_id: plan.id,
-    training_day_id: days[0].id,
-    started_at: atNoon(date),
-    completed_at: `${date}T13:05:00.000Z`,
-    status: 'completed',
-  }))
-  const weights = [80, 82.5, 85]
-  const workoutSets: WorkoutSet[] = sessions.flatMap((session, sessionIndex) => [
-    {
-      ...createBase(DEMO_USER_ID, `demo-set-${sessionIndex + 1}-1`),
-      session_id: session.id,
-      exercise_id: 'demo-ex-bench',
-      set_number: 1,
-      weight_kg: weights[sessionIndex],
-      reps: 7,
-      is_completed: true,
-    },
-    {
-      ...createBase(DEMO_USER_ID, `demo-set-${sessionIndex + 1}-2`),
-      session_id: session.id,
-      exercise_id: 'demo-ex-bench',
-      set_number: 2,
-      weight_kg: weights[sessionIndex],
-      reps: 6,
-      is_completed: true,
-    },
-    {
-      ...createBase(DEMO_USER_ID, `demo-set-${sessionIndex + 1}-3`),
-      session_id: session.id,
-      exercise_id: 'demo-ex-bench',
-      set_number: 3,
-      weight_kg: weights[sessionIndex],
-      reps: 5,
-      is_completed: true,
-    },
-  ])
-
   const bodyEntries: BodyEntry[] = Array.from({ length: 14 }, (_, index) => ({
     ...createBase(DEMO_USER_ID, `demo-body-${index}`),
     entry_date: dateOffset(index - 13),
@@ -176,11 +104,6 @@ async function runSeedDemoData() {
 
   await db.profiles.put(profile)
   await db.user_settings.put(settings)
-  await db.training_plans.put(plan)
-  await db.training_days.bulkPut(days)
-  await db.exercises.bulkPut(exercises)
-  await db.workout_sessions.bulkPut(sessions)
-  await db.workout_sets.bulkPut(workoutSets)
   await db.body_entries.bulkPut(bodyEntries)
   await db.meal_slots.bulkPut(meals)
   await db.food_entries.bulkPut(foods)

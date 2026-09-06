@@ -1,8 +1,9 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, type CSSProperties, type FormEvent } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { ChevronRight, Info, Pencil, Plus, ScanBarcode, Search, Trash2, Utensils } from 'lucide-react'
+import { ChevronDown, ChevronRight, ChevronUp, Database, Info, LoaderCircle, Pencil, Plus, ScanBarcode, Search, Trash2, Utensils } from 'lucide-react'
 import { Button, Card, EmptyState, Field, IconButton, InfoNote, Metric, Modal, ProgressBar, SelectField } from '../../components/ui'
 import { db, saveRecord, softDeleteRecord } from '../../lib/db'
+import { searchFoods, type FoodSearchResult } from '../../lib/food-search'
 import { estimateMaintenance } from '../../lib/maintenance'
 import { getNutrientTarget, nutrientReferences, type NutrientReference } from '../../lib/nutrients'
 import type { FoodEntry, GoalMode, MealSlot, Profile, UserSettings } from '../../types'
@@ -15,16 +16,19 @@ export function NutritionScreen({ userId, profile }: { userId: string; profile: 
   const [activeMeal, setActiveMeal] = useState<MealSlot | null>(null)
   const [manageMeals, setManageMeals] = useState(false)
   const [microInfo, setMicroInfo] = useState<NutrientReference | null>(null)
+  const [showMicronutrients, setShowMicronutrients] = useState(false)
 
   const settings = useLiveQuery(() => db.user_settings.where('user_id').equals(userId).first(), [userId])
   const entries = useLiveQuery(async () => (await db.food_entries.where('user_id').equals(userId).toArray()).filter((entry) => !entry.deleted_at), [userId], [])
   const bodyEntries = useLiveQuery(async () => (await db.body_entries.where('user_id').equals(userId).toArray()).filter((entry) => !entry.deleted_at), [userId], [])
   const mealSlots = useLiveQuery(async () => (await db.meal_slots.where('user_id').equals(userId).toArray()).filter((meal) => !meal.deleted_at).sort((a, b) => a.order_index - b.order_index), [userId], [])
-  const todayEntries = entries.filter((entry) => entry.entry_date === date)
+  const todayEntries = useMemo(() => entries.filter((entry) => entry.entry_date === date), [date, entries])
   const maintenance = useMemo(() => estimateMaintenance(bodyEntries), [bodyEntries])
   const baseTarget = maintenance.maintenance ?? settings?.preliminary_maintenance ?? 0
   const calorieTarget = Math.max(0, baseTarget + (settings?.goal_mode === 'cut' ? -(settings?.calorie_adjustment ?? 0) : settings?.goal_mode === 'bulk' ? settings?.calorie_adjustment ?? 0 : 0))
-  const totals = sumFood(todayEntries)
+  const totals = useMemo(() => sumFood(todayEntries), [todayEntries])
+  const remainingCalories = Math.round(calorieTarget - totals.calories)
+  const calorieProgress = calorieTarget ? totals.calories / calorieTarget * 100 : 0
 
   async function updateGoal(mode: GoalMode) {
     if (!settings) return
@@ -57,10 +61,10 @@ export function NutritionScreen({ userId, profile }: { userId: string; profile: 
     await recalculateBodyCalories()
   }
 
-  const micronutrientTotals = nutrientReferences.reduce<Record<string, number>>((result, nutrient) => {
+  const micronutrientTotals = useMemo(() => nutrientReferences.reduce<Record<string, number>>((result, nutrient) => {
     result[nutrient.key] = todayEntries.reduce((sum, entry) => sum + (entry.micronutrients[nutrient.key] ?? 0), 0)
     return result
-  }, {})
+  }, {}), [todayEntries])
 
   return (
     <main className="content">
@@ -71,22 +75,61 @@ export function NutritionScreen({ userId, profile }: { userId: string; profile: 
           <div><span className="eyebrow">Tagesziel</span><div className="hero-number">{calorieTarget ? calorieTarget.toLocaleString('de-DE') : '–'} kcal</div></div>
           <label className="compact-date"><span>Datum</span><input type="date" value={date} max={today()} onChange={(event) => setDate(event.target.value)} /></label>
         </div>
-        <div>
-          <div className="row row--between small"><span>{Math.round(totals.calories).toLocaleString('de-DE')} gegessen</span><span>{Math.max(0, Math.round(calorieTarget - totals.calories)).toLocaleString('de-DE')} übrig</span></div>
-          <ProgressBar value={calorieTarget ? totals.calories / calorieTarget * 100 : 0} tone="taupe" />
+        <div className="calorie-budget">
+          <div
+            className={`calorie-ring ${remainingCalories < 0 ? 'calorie-ring--over' : ''}`}
+            style={{ '--calorie-progress': `${Math.min(100, Math.max(0, calorieProgress)) * 3.6}deg` } as CSSProperties}
+            role="img"
+            aria-label={`${Math.round(totals.calories)} von ${Math.round(calorieTarget)} Kilokalorien gegessen`}
+          >
+            <div className="calorie-ring__inside">
+              <strong>{Math.abs(remainingCalories).toLocaleString('de-DE')}</strong>
+              <span>{remainingCalories < 0 ? 'kcal darüber' : 'kcal übrig'}</span>
+            </div>
+          </div>
+          <div className="calorie-budget__legend">
+            <div><span className="calorie-dot calorie-dot--eaten" /><span>Gegessen</span><strong>{Math.round(totals.calories).toLocaleString('de-DE')} kcal</strong></div>
+            <div><span className="calorie-dot calorie-dot--target" /><span>Tagesziel</span><strong>{Math.round(calorieTarget).toLocaleString('de-DE')} kcal</strong></div>
+            <small>{Math.round(Math.max(0, calorieProgress))} % des Ziels</small>
+          </div>
         </div>
         <div className="grid-3">
           <Metric label="Eiweiß" value={`${totals.protein.toFixed(0)} g`} />
           <Metric label="Kohlenhydrate" value={`${totals.carbs.toFixed(0)} g`} />
           <Metric label="Fett" value={`${totals.fat.toFixed(0)} g`} />
         </div>
+        <button className="micro-toggle" type="button" aria-expanded={showMicronutrients} onClick={() => setShowMicronutrients((visible) => !visible)}>
+          <span><Database size={17} /> Mikronährstoffe</span>
+          <span>{showMicronutrients ? 'Ausblenden' : 'Alle anzeigen'} {showMicronutrients ? <ChevronUp size={17} /> : <ChevronDown size={17} />}</span>
+        </button>
       </Card>
+
+      {showMicronutrients && (
+        <Card className="stack micronutrient-card">
+          <div className="section-heading section-heading--inside"><div><span className="eyebrow">Tagesübersicht</span><h2>Mikronährstoffe</h2></div><span className="pill">DGE-Orientierung</span></div>
+          <InfoNote>Referenzwerte dienen gesunden Erwachsenen als Orientierung. Produktdaten können unvollständig sein und ersetzen keine medizinische Beratung.</InfoNote>
+          <div className="nutrient-list">
+            {nutrientReferences.map((nutrient) => {
+              const target = getNutrientTarget(nutrient, profile)
+              const consumed = micronutrientTotals[nutrient.key]
+              const percent = target ? consumed / target * 100 : 0
+              return (
+                <div className="nutrient-row" key={nutrient.key}>
+                  <button className="nutrient-row__info" onClick={() => setMicroInfo(nutrient)} aria-label={`Information zu ${nutrient.label}`}><Info size={16} /></button>
+                  <div><div className="row row--between"><strong>{nutrient.label}</strong><span>{Math.round(percent)} %</span></div><ProgressBar value={percent} tone="green" /><span className="tiny muted">{consumed.toFixed(consumed < 10 ? 1 : 0)} von {target} {nutrient.unit}</span></div>
+                </div>
+              )
+            })}
+          </div>
+          <a className="source-link" href="https://www.dge.de/wissenschaft/referenzwerte/" target="_blank" rel="noreferrer">DGE-Referenzwerte ansehen <ChevronRight size={15} /></a>
+        </Card>
+      )}
 
       <Card className="stack">
         <div><span className="eyebrow">Zielrichtung</span><h2>Was ist dein aktuelles Ziel?</h2></div>
         <div className="segmented">
-          <button aria-pressed={settings?.goal_mode === 'maintain'} onClick={() => void updateGoal('maintain')}>Halten</button>
           <button aria-pressed={settings?.goal_mode === 'cut'} onClick={() => void updateGoal('cut')}>Defizit</button>
+          <button aria-pressed={settings?.goal_mode === 'maintain'} onClick={() => void updateGoal('maintain')}>Halten</button>
           <button aria-pressed={settings?.goal_mode === 'bulk'} onClick={() => void updateGoal('bulk')}>Aufbau</button>
         </div>
         {settings?.goal_mode !== 'maintain' && (
@@ -128,25 +171,6 @@ export function NutritionScreen({ userId, profile }: { userId: string; profile: 
         })}
       </div>
 
-      <div className="section-heading"><h2>Mikronährstoffe</h2><span className="pill">DGE-Orientierung</span></div>
-      <Card className="stack">
-        <InfoNote>Die Werte sind Referenzwerte für gesunde Erwachsene, kein individuell gemessener Bedarf. Ohne Lebensmitteldatenbank bleiben die Mengen zunächst bei null; die Ansicht ist bereits vorbereitet.</InfoNote>
-        <div className="nutrient-list">
-          {nutrientReferences.map((nutrient) => {
-            const target = getNutrientTarget(nutrient, profile)
-            const consumed = micronutrientTotals[nutrient.key]
-            const percent = target ? consumed / target * 100 : 0
-            return (
-              <div className="nutrient-row" key={nutrient.key}>
-                <button className="nutrient-row__info" onClick={() => setMicroInfo(nutrient)} aria-label={`Information zu ${nutrient.label}`}><Info size={16} /></button>
-                <div><div className="row row--between"><strong>{nutrient.label}</strong><span>{Math.round(percent)} %</span></div><ProgressBar value={percent} tone="green" /><span className="tiny muted">{consumed.toFixed(consumed < 10 ? 1 : 0)} von {target} {nutrient.unit}</span></div>
-              </div>
-            )
-          })}
-        </div>
-        <a className="source-link" href="https://www.dge.de/wissenschaft/referenzwerte/" target="_blank" rel="noreferrer">DGE-Referenzwerte ansehen <ChevronRight size={15} /></a>
-      </Card>
-
       <FoodSearchModal
         open={Boolean(activeMeal)}
         meal={activeMeal}
@@ -185,6 +209,11 @@ function FoodSearchModal({
 }) {
   const [query, setQuery] = useState('')
   const [manual, setManual] = useState(false)
+  const [results, setResults] = useState<FoodSearchResult[]>([])
+  const [searchedQuery, setSearchedQuery] = useState('')
+  const [searching, setSearching] = useState(false)
+  const [searchError, setSearchError] = useState('')
+  const [selectedProduct, setSelectedProduct] = useState<FoodSearchResult | null>(null)
   const [name, setName] = useState('')
   const [amount, setAmount] = useState('100')
   const [unit, setUnit] = useState<FoodEntry['unit']>('g')
@@ -192,13 +221,22 @@ function FoodSearchModal({
   const [protein, setProtein] = useState('')
   const [carbs, setCarbs] = useState('')
   const [fat, setFat] = useState('')
+  const [micronutrients, setMicronutrients] = useState<Record<string, number>>({})
 
-  const recent = Array.from(new Map(previousEntries.slice().reverse().map((entry) => [entry.name.toLowerCase(), entry])).values())
+  const recent = useMemo(() => Array.from(new Map(previousEntries.slice().reverse().map((entry) => [entry.name.toLowerCase(), entry])).values())
     .filter((entry) => !query || entry.name.toLowerCase().includes(query.toLowerCase()))
-    .slice(0, 5)
+    .slice(0, 5), [previousEntries, query])
 
   function startManual(prefill = query) {
+    setSelectedProduct(null)
     setName(prefill)
+    setAmount('100')
+    setUnit('g')
+    setCalories('')
+    setProtein('')
+    setCarbs('')
+    setFat('')
+    setMicronutrients({})
     setManual(true)
   }
 
@@ -210,7 +248,45 @@ function FoodSearchModal({
     setProtein(String(entry.protein_g))
     setCarbs(String(entry.carbs_g))
     setFat(String(entry.fat_g))
+    setMicronutrients(entry.micronutrients)
+    setSelectedProduct(null)
     setManual(true)
+  }
+
+  function useProduct(product: FoodSearchResult) {
+    setSelectedProduct(product)
+    setName(product.name)
+    setUnit(product.unit)
+    applyProductAmount(product, '100')
+    setManual(true)
+  }
+
+  function applyProductAmount(product: FoodSearchResult, rawAmount: string) {
+    setAmount(rawAmount)
+    const numericAmount = Number(rawAmount)
+    const factor = Number.isFinite(numericAmount) ? numericAmount / 100 : 0
+    setCalories(formatInputNumber(product.caloriesPer100 * factor))
+    setProtein(formatInputNumber(product.proteinPer100 * factor))
+    setCarbs(formatInputNumber(product.carbsPer100 * factor))
+    setFat(formatInputNumber(product.fatPer100 * factor))
+    setMicronutrients(Object.fromEntries(Object.entries(product.micronutrientsPer100).map(([key, value]) => [key, value * factor])))
+  }
+
+  async function submitSearch(event: FormEvent) {
+    event.preventDefault()
+    const normalizedQuery = query.trim()
+    if (normalizedQuery.length < 2 || searching) return
+    setSearching(true)
+    setSearchError('')
+    setSearchedQuery(normalizedQuery)
+    try {
+      setResults(await searchFoods(normalizedQuery))
+    } catch (error) {
+      setResults([])
+      setSearchError(error instanceof Error ? error.message : 'Die Lebensmittelsuche ist gerade nicht erreichbar.')
+    } finally {
+      setSearching(false)
+    }
   }
 
   async function addFood() {
@@ -226,40 +302,75 @@ function FoodSearchModal({
       protein_g: Number(protein || 0),
       carbs_g: Number(carbs || 0),
       fat_g: Number(fat || 0),
-      micronutrients: {},
+      micronutrients,
     }
     await saveRecord('food_entries', entry)
     await onSaved()
     setManual(false)
     setQuery('')
+    setResults([])
+    setSearchedQuery('')
     setName('')
+    setSelectedProduct(null)
+    onClose()
+  }
+
+  function closeModal() {
+    setManual(false)
+    setQuery('')
+    setResults([])
+    setSearchedQuery('')
+    setSearchError('')
+    setSelectedProduct(null)
     onClose()
   }
 
   return (
-    <Modal open={open} title={meal?.name ?? 'Lebensmittel'} onClose={onClose}>
+    <Modal open={open} title={meal?.name ?? 'Lebensmittel'} onClose={closeModal}>
       {!manual ? (
         <>
-          <div className="search-field"><Search size={19} /><input autoFocus placeholder="Lebensmittel suchen" value={query} onChange={(event) => setQuery(event.target.value)} /></div>
+          <form className="search-field" onSubmit={(event) => void submitSearch(event)}>
+            <Search size={19} />
+            <input autoFocus placeholder="z. B. Skyr, Haferflocken …" value={query} onChange={(event) => { setQuery(event.target.value); setSearchError(''); setSearchedQuery(''); setResults([]) }} />
+            <button className="search-submit" type="submit" disabled={query.trim().length < 2 || searching} aria-label="Lebensmittel suchen">{searching ? <LoaderCircle className="spin" size={18} /> : <ChevronRight size={19} />}</button>
+          </form>
           <Button variant="secondary" full disabled><ScanBarcode size={19} /> Barcode-Scanner folgt in der Handy-App</Button>
-          {recent.length > 0 && (
+          {!searchedQuery && recent.length > 0 && (
             <div className="stack stack--tight"><span className="eyebrow">Zuletzt verwendet</span>{recent.map((entry) => <button className="recent-food" key={entry.id} onClick={() => useRecent(entry)}><div><strong>{entry.name}</strong><span>{entry.amount} {entry.unit} · {Math.round(entry.calories)} kcal</span></div><Plus size={18} /></button>)}</div>
           )}
-          {query && (
+          {results.length > 0 && (
+            <div className="stack stack--tight">
+              <div className="food-results-heading"><span className="eyebrow">Ergebnisse</span><span>{results.length} Treffer</span></div>
+              <div className="food-search-results">
+                {results.map((product, index) => (
+                  <button className="food-result" key={`${product.id}-${index}`} onClick={() => useProduct(product)}>
+                    <span className="food-result__icon"><Utensils size={18} /></span>
+                    <span><strong>{product.name}</strong><small>{product.brand || 'Marke nicht angegeben'} · {Math.round(product.caloriesPer100)} kcal / 100 {product.unit}</small></span>
+                    <Plus size={18} />
+                  </button>
+                ))}
+              </div>
+              <p className="food-source-note">Produktdaten von Open Food Facts. Angaben stammen aus einer offenen Community-Datenbank und können unvollständig sein.</p>
+              <Button variant="ghost" full onClick={() => startManual()}>Nicht dabei? Selbst eintragen</Button>
+            </div>
+          )}
+          {searchError && <><InfoNote>{searchError} Du kannst das Lebensmittel weiterhin selbst eintragen.</InfoNote><Button onClick={() => startManual()}><Plus size={18} /> Selbst eintragen</Button></>}
+          {searchedQuery && !searching && results.length === 0 && !searchError && (
             <EmptyState
               icon={<Search size={24} />}
-              title="Keine Datenbank-Ergebnisse"
-              text="Die externe Lebensmitteldatenbank wird später angebunden. Du kannst den Eintrag bis dahin selbst anlegen."
+              title="Nichts Passendes gefunden"
+              text={`Für „${searchedQuery}“ liefert die Datenbank keinen passenden Eintrag. Du kannst die Werte selbst ergänzen.`}
               action={<Button onClick={() => startManual()}><Plus size={18} /> Selbst eintragen</Button>}
             />
           )}
-          {!query && recent.length === 0 && <EmptyState icon={<Utensils size={24} />} title="Noch keine Lebensmittel" text="Die Suche ist vorbereitet. Bis zur Datenbank-Anbindung kannst du eigene Werte schnell eintragen." action={<Button onClick={() => startManual('')}><Plus size={18} /> Eigenes Lebensmittel</Button>} />}
+          {!searchedQuery && recent.length === 0 && <EmptyState icon={<Database size={24} />} title="Lebensmittel suchen" text="Durchsuche Open Food Facts oder lege ein eigenes Lebensmittel an." action={<Button onClick={() => startManual('')}><Plus size={18} /> Eigenes Lebensmittel</Button>} />}
         </>
       ) : (
         <>
+          {selectedProduct && <div className="database-selection"><Database size={18} /><div><strong>Aus der Lebensmitteldatenbank</strong><span>Nährwerte werden automatisch an die Menge angepasst.</span></div></div>}
           <Field label="Lebensmittel" value={name} onChange={(event) => setName(event.target.value)} placeholder="z. B. Skyr" autoFocus />
           <div className="input-row">
-            <Field label="Menge" type="number" min="0.1" step="0.1" value={amount} onChange={(event) => setAmount(event.target.value)} />
+            <Field label="Menge" type="number" min="0.1" step="0.1" value={amount} onChange={(event) => selectedProduct ? applyProductAmount(selectedProduct, event.target.value) : setAmount(event.target.value)} />
             <SelectField label="Einheit" value={unit} onChange={(event) => setUnit(event.target.value as FoodEntry['unit'])}><option value="g">Gramm</option><option value="ml">Milliliter</option><option value="piece">Stück</option></SelectField>
           </div>
           <Field label="Kalorien für diese Menge" type="number" min="0" value={calories} onChange={(event) => setCalories(event.target.value)} placeholder="0" />
@@ -273,6 +384,10 @@ function FoodSearchModal({
       )}
     </Modal>
   )
+}
+
+function formatInputNumber(value: number) {
+  return String(Math.round(value * 10) / 10)
 }
 
 function MealManager({ open, meals, userId, onClose }: { open: boolean; meals: MealSlot[]; userId: string; onClose: () => void }) {
