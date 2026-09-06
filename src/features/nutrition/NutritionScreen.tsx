@@ -62,9 +62,11 @@ export function NutritionScreen({ userId, profile }: { userId: string; profile: 
   }
 
   const micronutrientTotals = useMemo(() => nutrientReferences.reduce<Record<string, number>>((result, nutrient) => {
-    result[nutrient.key] = todayEntries.reduce((sum, entry) => sum + (entry.micronutrients[nutrient.key] ?? 0), 0)
+    result[nutrient.key] = todayEntries.reduce((sum, entry) => sum + Number(entry.micronutrients?.[nutrient.key] ?? 0), 0)
     return result
   }, {}), [todayEntries])
+  const availableMicronutrients = useMemo(() => new Set(todayEntries.flatMap((entry) => Object.keys(entry.micronutrients ?? {}))), [todayEntries])
+  const availableMicronutrientCount = nutrientReferences.filter((nutrient) => availableMicronutrients.has(nutrient.key)).length
 
   return (
     <main className="content">
@@ -106,17 +108,18 @@ export function NutritionScreen({ userId, profile }: { userId: string; profile: 
 
       {showMicronutrients && (
         <Card className="stack micronutrient-card">
-          <div className="section-heading section-heading--inside"><div><span className="eyebrow">Tagesübersicht</span><h2>Mikronährstoffe</h2></div><span className="pill">DGE-Orientierung</span></div>
-          <InfoNote>Referenzwerte dienen gesunden Erwachsenen als Orientierung. Produktdaten können unvollständig sein und ersetzen keine medizinische Beratung.</InfoNote>
+          <div className="section-heading section-heading--inside"><div><span className="eyebrow">Tagesübersicht</span><h2>Mikronährstoffe</h2></div><span className="pill">{availableMicronutrientCount}/{nutrientReferences.length} mit Daten</span></div>
+          <InfoNote>„Keine Daten“ bedeutet, dass der gewählte Produkteintrag diesen Nährstoff nicht enthält – nicht, dass du 0 % aufgenommen hast.</InfoNote>
           <div className="nutrient-list">
             {nutrientReferences.map((nutrient) => {
               const target = getNutrientTarget(nutrient, profile)
               const consumed = micronutrientTotals[nutrient.key]
+              const isAvailable = availableMicronutrients.has(nutrient.key)
               const percent = target ? consumed / target * 100 : 0
               return (
-                <div className="nutrient-row" key={nutrient.key}>
+                <div className={`nutrient-row ${isAvailable ? '' : 'nutrient-row--unknown'}`} key={nutrient.key}>
                   <button className="nutrient-row__info" onClick={() => setMicroInfo(nutrient)} aria-label={`Information zu ${nutrient.label}`}><Info size={16} /></button>
-                  <div><div className="row row--between"><strong>{nutrient.label}</strong><span>{Math.round(percent)} %</span></div><ProgressBar value={percent} tone="green" /><span className="tiny muted">{consumed.toFixed(consumed < 10 ? 1 : 0)} von {target} {nutrient.unit}</span></div>
+                  <div><div className="row row--between"><strong>{nutrient.label}</strong><span>{isAvailable ? `${Math.round(percent)} %` : 'Keine Daten'}</span></div><ProgressBar value={isAvailable ? percent : 0} tone="green" /><span className="tiny muted">{isAvailable ? `${consumed.toFixed(consumed < 10 ? 1 : 0)} von ${target} ${nutrient.unit}` : 'Nicht in den gewählten Produktdaten enthalten'}</span></div>
                 </div>
               )
             })}
@@ -223,6 +226,7 @@ function FoodSearchModal({
   const [carbs, setCarbs] = useState('')
   const [fat, setFat] = useState('')
   const [micronutrients, setMicronutrients] = useState<Record<string, number>>({})
+  const [showMicroEditor, setShowMicroEditor] = useState(false)
 
   const recent = useMemo(() => Array.from(new Map(previousEntries.slice().reverse().map((entry) => [entry.name.toLowerCase(), entry])).values())
     .filter((entry) => !query || entry.name.toLowerCase().includes(query.toLowerCase()))
@@ -239,6 +243,7 @@ function FoodSearchModal({
     setCarbs('')
     setFat('')
     setMicronutrients({})
+    setShowMicroEditor(false)
     setManual(true)
   }
 
@@ -252,6 +257,7 @@ function FoodSearchModal({
     setCarbs(String(entry.carbs_g))
     setFat(String(entry.fat_g))
     setMicronutrients(entry.micronutrients)
+    setShowMicroEditor(false)
     setSelectedProduct(null)
     setManual(true)
   }
@@ -262,6 +268,7 @@ function FoodSearchModal({
     setBrand(product.brand)
     setUnit(product.unit)
     applyProductAmount(product, '100')
+    setShowMicroEditor(false)
     setManual(true)
   }
 
@@ -321,6 +328,18 @@ function FoodSearchModal({
     onClose()
   }
 
+  function updateMicronutrient(key: string, rawValue: string) {
+    setMicronutrients((current) => {
+      const next = { ...current }
+      if (rawValue === '') delete next[key]
+      else {
+        const value = Number(rawValue)
+        if (Number.isFinite(value) && value >= 0) next[key] = value
+      }
+      return next
+    })
+  }
+
   function closeModal() {
     setManual(false)
     setQuery('')
@@ -328,6 +347,7 @@ function FoodSearchModal({
     setSearchedQuery('')
     setSearchError('')
     setSelectedProduct(null)
+    setShowMicroEditor(false)
     onClose()
   }
 
@@ -348,15 +368,18 @@ function FoodSearchModal({
             <div className="stack stack--tight">
               <div className="food-results-heading"><span className="eyebrow">Ergebnisse</span><span>{results.length} Treffer</span></div>
               <div className="food-search-results">
-                {results.map((product, index) => (
-                  <button className="food-result" key={`${product.id}-${index}`} onClick={() => useProduct(product)}>
-                    <span className="food-result__icon"><Utensils size={18} /></span>
-                    <span><strong>{product.name}</strong><small>{product.brand || 'Marke nicht angegeben'} · {Math.round(product.caloriesPer100)} kcal / 100 {product.unit}</small></span>
-                    <Plus size={18} />
-                  </button>
-                ))}
+                {results.map((product, index) => {
+                  const microCount = Object.keys(product.micronutrientsPer100).length
+                  return (
+                    <button className="food-result" key={`${product.id}-${index}`} onClick={() => useProduct(product)}>
+                      <span className="food-result__icon"><Utensils size={18} /></span>
+                      <span><strong>{product.name}</strong><small>{product.brand || 'Marke nicht angegeben'} · {Math.round(product.caloriesPer100)} kcal / 100 {product.unit}</small><small className={microCount ? 'food-result__micros food-result__micros--ready' : 'food-result__micros'}>{microCount ? `${microCount} Mikronährstoffe enthalten` : 'Keine Mikronährstoffdaten'}</small></span>
+                      <Plus size={18} />
+                    </button>
+                  )
+                })}
               </div>
-              <p className="food-source-note">Produktdaten von Open Food Facts. Angaben stammen aus einer offenen Community-Datenbank und können unvollständig sein.</p>
+              <p className="food-source-note">Produkte und Marken von Open Food Facts. Ergänzende Analysewerte von USDA FoodData Central. Wähle für die Mikronährstoffauswertung möglichst einen Eintrag mit grüner Datenangabe.</p>
               <Button variant="ghost" full onClick={() => startManual()}>Nicht dabei? Selbst eintragen</Button>
             </div>
           )}
@@ -373,7 +396,7 @@ function FoodSearchModal({
         </>
       ) : (
         <>
-          {selectedProduct && <div className="database-selection"><Database size={18} /><div><strong>{selectedProduct.brand || 'Aus der Lebensmitteldatenbank'}</strong><span>Nährwerte werden automatisch an die Menge angepasst.</span></div></div>}
+          {selectedProduct && <div className="database-selection"><Database size={18} /><div><strong>{selectedProduct.brand || 'Aus der Lebensmitteldatenbank'}</strong><span>{Object.keys(selectedProduct.micronutrientsPer100).length ? `${Object.keys(selectedProduct.micronutrientsPer100).length} Mikronährstoffe werden mit der Menge angepasst.` : 'Dieser Datensatz enthält nur Kalorien und Makros.'}</span></div></div>}
           <Field label="Lebensmittel" value={name} onChange={(event) => setName(event.target.value)} placeholder="z. B. Skyr" autoFocus />
           <Field label="Marke (optional)" value={brand} onChange={(event) => setBrand(event.target.value)} placeholder="z. B. K-Classic" maxLength={120} />
           <div className="input-row">
@@ -386,6 +409,22 @@ function FoodSearchModal({
             <Field label="Kohlenh. (g)" type="number" min="0" step="0.1" value={carbs} onChange={(event) => setCarbs(event.target.value)} placeholder="0" />
             <Field label="Fett (g)" type="number" min="0" step="0.1" value={fat} onChange={(event) => setFat(event.target.value)} placeholder="0" />
           </div>
+          <button className="micro-editor-toggle" type="button" aria-expanded={showMicroEditor} onClick={() => setShowMicroEditor((visible) => !visible)}>
+            <span><Database size={17} /> Mikronährstoffe für diese Menge</span>
+            <span>{Object.keys(micronutrients).length} eingetragen {showMicroEditor ? <ChevronUp size={17} /> : <ChevronDown size={17} />}</span>
+          </button>
+          {showMicroEditor && <div className="micro-editor-grid">
+            {nutrientReferences.map((nutrient) => <Field
+              key={nutrient.key}
+              label={`${nutrient.label} (${nutrient.unit})`}
+              type="number"
+              min="0"
+              step="any"
+              value={micronutrients[nutrient.key] ?? ''}
+              onChange={(event) => updateMicronutrient(nutrient.key, event.target.value)}
+              placeholder="Keine Angabe"
+            />)}
+          </div>}
           <div className="row"><Button variant="secondary" onClick={() => setManual(false)}>Zurück</Button><Button full disabled={!name.trim() || !calories} onClick={() => void addFood()}>Hinzufügen</Button></div>
         </>
       )}

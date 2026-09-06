@@ -59,4 +59,33 @@ describe('searchFoods', () => {
     expect(results.map((product) => product.name)).toEqual(['Skyr Natur', 'Compote'])
     expect(results[0].brand).toBe('K-Classic')
   })
+
+  it('normalizes detailed USDA micronutrients and their units', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ products: [{
+        code: 'usda-123',
+        product_name: 'Bananas, raw',
+        brands: 'USDA FoodData Central',
+        source: 'usda',
+        data_type: 'Foundation',
+        nutriments: {
+          'energy-kcal_100g': 89,
+          proteins_100g: 1.1,
+          potassium_100g: 358,
+          potassium_unit: 'mg',
+          'vitamin-b6_100g': 0.367,
+          'vitamin-b6_unit': 'mg',
+        },
+      }] }),
+    }))
+
+    const [result] = await searchFoods('Banane')
+    expect(result).toEqual(expect.objectContaining({
+      source: 'usda',
+      dataType: 'Foundation',
+      caloriesPer100: 89,
+      micronutrientsPer100: { potassium: 358, vitamin_b6: 0.367 },
+    }))
+  })
 })

@@ -10,6 +10,28 @@ interface ResponseLike {
   json(body: unknown): void
 }
 
+interface UsdaNutrient {
+  nutrientId?: number
+  nutrientName?: string
+  unitName?: string
+  value?: number
+}
+
+interface UsdaFood {
+  fdcId?: number
+  description?: string
+  brandOwner?: string
+  brandName?: string
+  dataType?: string
+  foodNutrients?: UsdaNutrient[]
+}
+
+interface UsdaSearchResponse {
+  foods?: UsdaFood[]
+}
+
+declare const process: { env: Record<string, string | undefined> }
+
 const fields = [
   'code',
   'product_name',
@@ -19,6 +41,54 @@ const fields = [
   'product_quantity_unit',
   'nutriments',
 ].join(',')
+
+const usdaNutrients = [
+  { key: 'energy-kcal', ids: [1008, 2047, 2048], names: ['energy'], unit: 'kcal' },
+  { key: 'proteins', ids: [1003], names: ['protein'], unit: 'g' },
+  { key: 'carbohydrates', ids: [1005], names: ['carbohydrate'], unit: 'g' },
+  { key: 'fat', ids: [1004], names: ['total lipid', 'total fat'], unit: 'g' },
+  { key: 'vitamin-a', ids: [1106], names: ['vitamin a, rae'], unit: 'µg' },
+  { key: 'vitamin-d', ids: [1114], names: ['vitamin d'], unit: 'µg' },
+  { key: 'vitamin-e', ids: [1109], names: ['vitamin e'], unit: 'mg' },
+  { key: 'vitamin-k', ids: [1185], names: ['vitamin k'], unit: 'µg' },
+  { key: 'vitamin-c', ids: [1162], names: ['vitamin c'], unit: 'mg' },
+  { key: 'vitamin-b1', ids: [1165], names: ['thiamin'], unit: 'mg' },
+  { key: 'vitamin-b2', ids: [1166], names: ['riboflavin'], unit: 'mg' },
+  { key: 'vitamin-b6', ids: [1175], names: ['vitamin b-6', 'vitamin b6'], unit: 'mg' },
+  { key: 'folate', ids: [1177], names: ['folate, total'], unit: 'µg' },
+  { key: 'vitamin-b12', ids: [1178], names: ['vitamin b-12', 'vitamin b12'], unit: 'µg' },
+  { key: 'calcium', ids: [1087], names: ['calcium'], unit: 'mg' },
+  { key: 'magnesium', ids: [1090], names: ['magnesium'], unit: 'mg' },
+  { key: 'iron', ids: [1089], names: ['iron'], unit: 'mg' },
+  { key: 'zinc', ids: [1095], names: ['zinc'], unit: 'mg' },
+  { key: 'iodine', ids: [1100], names: ['iodine'], unit: 'µg' },
+  { key: 'selenium', ids: [1103], names: ['selenium'], unit: 'µg' },
+  { key: 'potassium', ids: [1092], names: ['potassium'], unit: 'mg' },
+] as const
+
+const germanFoodTerms: Array<[RegExp, string]> = [
+  [/\bhaferflocken\b/giu, 'oats'],
+  [/\bhähnchenbrust\b/giu, 'chicken breast'],
+  [/\bhuehnchenbrust\b/giu, 'chicken breast'],
+  [/\bsüßkartoffeln?\b/giu, 'sweet potato'],
+  [/\bsuesskartoffeln?\b/giu, 'sweet potato'],
+  [/\bkartoffeln?\b/giu, 'potato'],
+  [/\bbrokkoli\b/giu, 'broccoli'],
+  [/\bspinat\b/giu, 'spinach'],
+  [/\bbananen?\b/giu, 'banana'],
+  [/\bäpfel?\b/giu, 'apple'],
+  [/\baepfel?\b/giu, 'apple'],
+  [/\borangen?\b/giu, 'orange'],
+  [/\blachs\b/giu, 'salmon'],
+  [/\bthunfisch\b/giu, 'tuna'],
+  [/\bvollmilch\b/giu, 'whole milk'],
+  [/\bmilch\b/giu, 'milk'],
+  [/\bmagerquark\b/giu, 'low fat quark'],
+  [/\bquark\b/giu, 'quark'],
+  [/\breis\b/giu, 'rice'],
+  [/\beier\b/giu, 'eggs'],
+  [/\bei\b/giu, 'egg'],
+]
 
 export default async function handler(request: RequestLike, response: ResponseLike) {
   if (request.method !== 'GET') {
@@ -34,6 +104,40 @@ export default async function handler(request: RequestLike, response: ResponseLi
     return response.status(400).json({ error: 'Bitte gib mindestens zwei Zeichen ein.' })
   }
 
+  const [openFoodFacts, usda] = await Promise.allSettled([
+    searchOpenFoodFacts(query),
+    searchUsda(query),
+  ])
+
+  const products = [
+    ...(openFoodFacts.status === 'fulfilled' ? openFoodFacts.value : []),
+    ...(usda.status === 'fulfilled' ? usda.value : []),
+  ]
+
+  if (products.length === 0) {
+    console.error('[api/foods] All food sources failed', {
+      openFoodFacts: openFoodFacts.status === 'rejected' ? String(openFoodFacts.reason) : 'no results',
+      usda: usda.status === 'rejected' ? String(usda.reason) : 'no results',
+    })
+    return response.status(502).json({ error: 'Die Lebensmitteldatenbanken antworten gerade nicht.' })
+  }
+
+  response.setHeader('Cache-Control', 's-maxage=21600, stale-while-revalidate=86400')
+  return response.status(200).json({ products })
+}
+
+async function searchOpenFoodFacts(query: string) {
+  const modernParams = new URLSearchParams({ q: query, page: '1', page_size: '12', langs: 'de,en', fields })
+  const modern = await fetch(`https://search.openfoodfacts.org/search?${modernParams}`, {
+    headers: { Accept: 'application/json', 'User-Agent': 'Bont/0.1 (https://bont-three.vercel.app)' },
+    signal: AbortSignal.timeout(6_000),
+  })
+
+  if (modern.ok) {
+    const data = await modern.json() as { hits?: Record<string, unknown>[] }
+    if (Array.isArray(data.hits)) return data.hits.map((product) => ({ ...product, source: 'open_food_facts' }))
+  }
+
   const legacyParams = new URLSearchParams({
     search_terms: query,
     search_simple: '1',
@@ -44,49 +148,77 @@ export default async function handler(request: RequestLike, response: ResponseLi
     cc: 'de',
     fields,
   })
+  const legacy = await fetch(`https://de.openfoodfacts.org/cgi/search.pl?${legacyParams}`, {
+    headers: { Accept: 'application/json', 'User-Agent': 'Bont/0.1 (https://bont-three.vercel.app)' },
+    signal: AbortSignal.timeout(7_000),
+  })
+  if (!legacy.ok) throw new Error(`Open Food Facts ${legacy.status}`)
+  const data = await legacy.json() as { products?: Record<string, unknown>[] }
+  return (data.products ?? []).map((product) => ({ ...product, source: 'open_food_facts' }))
+}
 
-  try {
-    const modernParams = new URLSearchParams({
-      q: query,
-      page: '1',
-      page_size: '12',
-      langs: 'de,en',
-      fields,
+async function searchUsda(query: string) {
+  const apiKey = process.env.USDA_FDC_API_KEY || 'DEMO_KEY'
+  const translatedQuery = germanFoodTerms.reduce((value, [pattern, replacement]) => value.replace(pattern, replacement), query)
+  const result = await fetch(`https://api.nal.usda.gov/fdc/v1/foods/search?api_key=${encodeURIComponent(apiKey)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({
+      query: translatedQuery,
+      pageSize: 18,
+      dataType: ['Foundation', 'SR Legacy', 'Survey (FNDDS)', 'Branded'],
+    }),
+    signal: AbortSignal.timeout(8_000),
+  })
+  if (!result.ok) throw new Error(`USDA FoodData Central ${result.status}`)
+
+  const data = await result.json() as UsdaSearchResponse
+  return (data.foods ?? [])
+    .map(usdaFoodToProduct)
+    .filter((product): product is NonNullable<ReturnType<typeof usdaFoodToProduct>> => Boolean(product))
+    .sort((a, b) => micronutrientCount(b.nutriments) - micronutrientCount(a.nutriments))
+    .slice(0, 6)
+}
+
+function usdaFoodToProduct(food: UsdaFood) {
+  if (!food.fdcId || !food.description) return null
+  const nutriments: Record<string, number | string> = {}
+
+  for (const definition of usdaNutrients) {
+    const nutrient = food.foodNutrients?.find((candidate) => {
+      if (candidate.nutrientId && (definition.ids as readonly number[]).includes(candidate.nutrientId)) return true
+      const name = candidate.nutrientName?.toLowerCase() ?? ''
+      return definition.names.some((alias) => name === alias || name.startsWith(`${alias},`))
     })
-    const modern = await fetch(`https://search.openfoodfacts.org/search?${modernParams}`, {
-      headers: {
-        Accept: 'application/json',
-        'User-Agent': 'Bont/0.1 (https://bont-three.vercel.app)',
-      },
-      signal: AbortSignal.timeout(6_000),
-    })
-
-    if (modern.ok) {
-      const data = await modern.json() as { hits?: unknown[] }
-      if (Array.isArray(data.hits)) {
-        response.setHeader('Cache-Control', 's-maxage=300, stale-while-revalidate=3600')
-        return response.status(200).json({ products: data.hits })
-      }
-    }
-    console.warn('[api/foods] Search-a-licious unavailable, using legacy fallback', { status: modern.status })
-
-    const legacy = await fetch(`https://de.openfoodfacts.org/cgi/search.pl?${legacyParams}`, {
-      headers: {
-        Accept: 'application/json',
-        'User-Agent': 'Bont/0.1 (https://bont-three.vercel.app)',
-      },
-      signal: AbortSignal.timeout(7_000),
-    })
-    if (!legacy.ok) {
-      console.error('[api/foods] Open Food Facts fallback failed', { status: legacy.status })
-      return response.status(502).json({ error: 'Die Lebensmitteldatenbank antwortet gerade nicht.' })
-    }
-
-    const data = await legacy.json()
-    response.setHeader('Cache-Control', 's-maxage=300, stale-while-revalidate=3600')
-    return response.status(200).json(data)
-  } catch (error) {
-    console.error('[api/foods] Search failed', { error: error instanceof Error ? error.message : String(error) })
-    return response.status(502).json({ error: 'Die Lebensmitteldatenbank ist gerade nicht erreichbar.' })
+    if (typeof nutrient?.value !== 'number' || !Number.isFinite(nutrient.value) || nutrient.value < 0) continue
+    nutriments[`${definition.key}_100g`] = nutrient.value
+    nutriments[`${definition.key}_unit`] = normalizeUsdaUnit(nutrient.unitName || definition.unit)
   }
+
+  if (typeof nutriments['energy-kcal_100g'] !== 'number') return null
+  return {
+    code: `usda-${food.fdcId}`,
+    product_name: sentenceCase(food.description),
+    brands: food.brandOwner || food.brandName || 'USDA FoodData Central',
+    quantity: '100 g',
+    product_quantity_unit: 'g',
+    nutriments,
+    source: 'usda',
+    data_type: food.dataType,
+  }
+}
+
+function normalizeUsdaUnit(unit: string) {
+  const normalized = unit.trim().toLowerCase()
+  if (normalized === 'ug' || normalized === 'μg') return 'µg'
+  return normalized
+}
+
+function micronutrientCount(nutriments: Record<string, number | string>) {
+  return usdaNutrients.slice(4).filter(({ key }) => typeof nutriments[`${key}_100g`] === 'number').length
+}
+
+function sentenceCase(value: string) {
+  const normalized = value.trim().toLocaleLowerCase('en-US')
+  return normalized ? normalized[0].toLocaleUpperCase('en-US') + normalized.slice(1) : ''
 }

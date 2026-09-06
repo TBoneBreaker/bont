@@ -8,6 +8,8 @@ export interface FoodSearchResult {
   carbsPer100: number
   fatPer100: number
   micronutrientsPer100: Record<string, number>
+  source: 'open_food_facts' | 'usda'
+  dataType?: string
 }
 
 interface OpenFoodFactsProduct {
@@ -18,6 +20,8 @@ interface OpenFoodFactsProduct {
   quantity?: string
   product_quantity_unit?: string
   nutriments?: Record<string, unknown>
+  source?: 'open_food_facts' | 'usda'
+  data_type?: string
 }
 
 interface OpenFoodFactsResponse {
@@ -91,6 +95,8 @@ function normalizeProduct(product: OpenFoodFactsProduct): FoodSearchResult | nul
     carbsPer100: numberFrom(nutrients.carbohydrates_100g) ?? 0,
     fatPer100: numberFrom(nutrients.fat_100g) ?? 0,
     micronutrientsPer100,
+    source: product.source === 'usda' ? 'usda' : 'open_food_facts',
+    dataType: cleanText(product.data_type) || undefined,
   }
 }
 
@@ -131,11 +137,12 @@ function cleanBrand(value: unknown) {
 function relevanceScore(product: FoodSearchResult, needle: string) {
   const name = product.name.toLocaleLowerCase('de-DE')
   const brand = product.brand.toLocaleLowerCase('de-DE')
-  if (name === needle) return 4
-  if (name.startsWith(needle)) return 3
-  if (name.includes(needle)) return 2
-  if (brand.includes(needle)) return 1
-  return 0
+  const nutrientBonus = Math.min(Object.keys(product.micronutrientsPer100).length, 17) / 100
+  if (name === needle) return 4 + nutrientBonus
+  if (name.startsWith(needle)) return 3 + nutrientBonus
+  if (name.includes(needle)) return 2 + nutrientBonus
+  if (brand.includes(needle)) return 1 + nutrientBonus
+  return (product.source === 'usda' ? 0.5 : 0) + nutrientBonus
 }
 
 function isLiquid(product: OpenFoodFactsProduct) {

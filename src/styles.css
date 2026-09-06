@@ -447,6 +447,8 @@ form.auth-panel { padding: 18px; border: 1px solid var(--border); border-radius:
 .nutrient-row__info { width: 32px; height: 32px; display: grid; place-items: center; border: 0; border-radius: 11px; background: var(--surface-soft); color: var(--blue); }
 .nutrient-row strong, .nutrient-row .row span { font-size: 0.74rem; }
 .nutrient-row .progress { height: 6px; margin: 7px 0 5px; }
+.nutrient-row--unknown { opacity: 0.66; }
+.nutrient-row--unknown .progress { filter: grayscale(1); opacity: 0.45; }
 .source-link { min-height: 44px; border-radius: 14px; background: var(--surface-tint); color: var(--blue); text-decoration: none; display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 0.74rem; font-weight: 600; }
 .search-field { min-height: 54px; display: flex; align-items: center; gap: 10px; border: 1px solid var(--border); border-radius: 17px; background: var(--surface); padding: 0 7px 0 14px; }
 .search-field input { flex: 1; min-width: 0; height: 48px; border: 0; outline: 0; background: transparent; color: var(--text); }
@@ -463,6 +465,8 @@ form.auth-panel { padding: 18px; border: 1px solid var(--border); border-radius:
 .food-result strong, .food-result small { display: block; }
 .food-result strong { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 0.86rem; }
 .food-result small { margin-top: 4px; color: var(--muted); font-size: 0.73rem; line-height: 1.35; }
+.food-result .food-result__micros { color: var(--muted); font-size: 0.68rem; font-weight: 600; }
+.food-result .food-result__micros--ready { color: var(--green); }
 .food-result > svg { color: var(--primary); }
 .food-source-note { color: var(--muted); font-size: 0.72rem; line-height: 1.45; margin: 2px 2px 0; }
 .database-selection { min-height: 58px; display: flex; align-items: center; gap: 10px; border-radius: 16px; padding: 10px 12px; background: color-mix(in srgb, var(--green) 10%, var(--surface)); color: var(--green); }
@@ -470,6 +474,10 @@ form.auth-panel { padding: 18px; border: 1px solid var(--border); border-radius:
 .database-selection strong, .database-selection span { display: block; }
 .database-selection strong { color: var(--text); font-size: 0.82rem; }
 .database-selection span { margin-top: 3px; color: var(--muted); font-size: 0.73rem; }
+.micro-editor-toggle { min-height: 48px; border: 1px solid var(--border); border-radius: 15px; background: var(--surface-soft); color: var(--text); padding: 0 13px; display: flex; align-items: center; justify-content: space-between; gap: 12px; cursor: pointer; }
+.micro-editor-toggle > span { display: inline-flex; align-items: center; gap: 7px; font-size: 0.74rem; font-weight: 650; }
+.micro-editor-toggle > span:last-child { color: var(--muted); font-weight: 550; }
+.micro-editor-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; padding: 2px 0; }
 .recent-food { min-height: 58px; display: flex; align-items: center; justify-content: space-between; gap: 10px; border: 1px solid var(--border); border-radius: 16px; background: var(--surface); color: var(--text); padding: 10px 14px; text-align: left; }
 .recent-food strong, .recent-food span { display: block; }
 .recent-food strong { font-size: 0.8rem; }
@@ -497,6 +505,7 @@ form.auth-panel { padding: 18px; border: 1px solid var(--border); border-radius:
   .metric-chart__pager > span { display: none; }
   .metric-chart__pager { grid-template-columns: 1fr 1fr; }
   .grid-3.body-inputs { grid-template-columns: 1fr; }
+  .micro-editor-grid { grid-template-columns: 1fr; }
   .body-inputs .field__label { min-height: 0; }
   .training-day-card { grid-template-columns: 38px 1fr; }
   .training-day-card .button { grid-column: 1 / -1; width: 100%; }
