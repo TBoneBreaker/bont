@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { ArrowLeft, ArrowRight, Check } from 'lucide-react'
 import { Button, Field, InfoNote, SelectField } from '../../components/ui'
 import { saveRecord } from '../../lib/db'
+import { localDateString } from '../../lib/date'
 import { preliminaryMaintenance } from '../../lib/maintenance'
 import type { Profile, Sex, UserSettings } from '../../types'
 import { createBase, newId } from '../../types'
@@ -85,7 +86,7 @@ export function Onboarding({ userId, onComplete }: { userId: string; onComplete:
         order_index: index,
       })
     }
-    const today = new Date().toISOString().slice(0, 10)
+    const today = localDateString()
     await saveRecord('body_entries', {
       ...createBase(userId),
       entry_date: today,
@@ -119,7 +120,7 @@ export function Onboarding({ userId, onComplete }: { userId: string; onComplete:
           <>
             <div><span className="eyebrow">Deine Basis</span><h1>Ein paar Werte für den Start.</h1></div>
             <p>Damit schätzen wir dein erstes Kalorienziel. Mit deinen echten Verlaufsdaten wird Bont später genauer.</p>
-            <Field label="Geburtsdatum" type="date" value={birthDate} max={new Date().toISOString().slice(0, 10)} onChange={(event) => setBirthDate(event.target.value)} />
+            <Field label="Geburtsdatum" type="date" value={birthDate} max={localDateString()} onChange={(event) => setBirthDate(event.target.value)} />
             <SelectField label="Biologisches Geschlecht für die Berechnung" value={sex} onChange={(event) => { setSex(event.target.value as Sex); setBodyFat('athletic') }}>
               <option value="male">Männlich</option>
               <option value="female">Weiblich</option>

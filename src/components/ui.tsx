@@ -1,5 +1,5 @@
-import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, SelectHTMLAttributes } from 'react'
-import { useEffect } from 'react'
+import type { ButtonHTMLAttributes, CSSProperties, InputHTMLAttributes, ReactNode, SelectHTMLAttributes } from 'react'
+import { useEffect, useState } from 'react'
 import { ArrowLeft, Info, Minus, Plus, X } from 'lucide-react'
 
 export function Button({
@@ -155,17 +155,35 @@ export function ScreenHeader({ title, eyebrow, onBack, action }: { title: string
 }
 
 export function Modal({ open, title, onClose, children }: { open: boolean; title: string; onClose: () => void; children: ReactNode }) {
+  const [keyboardInset, setKeyboardInset] = useState(0)
+
   useEffect(() => {
     if (!open) return
     const closeOnEscape = (event: KeyboardEvent) => event.key === 'Escape' && onClose()
     window.addEventListener('keydown', closeOnEscape)
-    return () => window.removeEventListener('keydown', closeOnEscape)
+    const viewport = window.visualViewport
+    const updateKeyboardInset = () => {
+      if (!viewport) return
+      setKeyboardInset(Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop))
+    }
+    updateKeyboardInset()
+    viewport?.addEventListener('resize', updateKeyboardInset)
+    viewport?.addEventListener('scroll', updateKeyboardInset)
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      window.removeEventListener('keydown', closeOnEscape)
+      viewport?.removeEventListener('resize', updateKeyboardInset)
+      viewport?.removeEventListener('scroll', updateKeyboardInset)
+      document.body.style.overflow = previousOverflow
+      setKeyboardInset(0)
+    }
   }, [open, onClose])
 
   if (!open) return null
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-      <section className="modal" role="dialog" aria-modal="true" aria-label={title}>
+      <section className="modal" role="dialog" aria-modal="true" aria-label={title} style={{ '--keyboard-inset': `${keyboardInset}px` } as CSSProperties}>
         <div className="modal__handle" />
         <div className="modal__header">
           <h2>{title}</h2>

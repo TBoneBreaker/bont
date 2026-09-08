@@ -1,4 +1,5 @@
 import { db } from './db'
+import { localDateString } from './date'
 import { DEMO_USER_ID } from './demo-constants'
 import { createBase } from '../types'
 import type {
@@ -11,8 +12,8 @@ import type {
 
 const dateOffset = (days: number) => {
   const date = new Date()
-  date.setUTCDate(date.getUTCDate() + days)
-  return date.toISOString().slice(0, 10)
+  date.setDate(date.getDate() + days)
+  return localDateString(date)
 }
 
 let seedPromise: Promise<void> | null = null

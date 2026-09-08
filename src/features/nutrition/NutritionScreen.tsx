@@ -3,13 +3,14 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { ChevronDown, ChevronRight, ChevronUp, Database, Info, LoaderCircle, Pencil, Plus, ScanBarcode, Search, Trash2, Utensils } from 'lucide-react'
 import { Button, Card, EmptyState, Field, IconButton, InfoNote, Metric, Modal, ProgressBar, SelectField } from '../../components/ui'
 import { db, saveRecord, softDeleteRecord } from '../../lib/db'
-import { searchFoods, type FoodSearchResult } from '../../lib/food-search'
+import { localDateString } from '../../lib/date'
+import { searchFoods, type FoodPortion, type FoodSearchResult } from '../../lib/food-search'
 import { estimateMaintenance } from '../../lib/maintenance'
 import { getNutrientTarget, nutrientReferences, type NutrientReference } from '../../lib/nutrients'
 import type { FoodEntry, GoalMode, MealSlot, Profile, UserSettings } from '../../types'
 import { createBase } from '../../types'
 
-const today = () => new Date().toISOString().slice(0, 10)
+const today = localDateString
 
 export function NutritionScreen({ userId, profile }: { userId: string; profile: Profile }) {
   const [date, setDate] = useState(today())
@@ -44,21 +45,8 @@ export function NutritionScreen({ userId, profile }: { userId: string; profile: 
     await saveRecord('user_settings', { ...settings, calorie_adjustment: Math.max(0, Math.min(1500, value)) })
   }
 
-  async function recalculateBodyCalories() {
-    const bodyEntry = bodyEntries.find((entry) => entry.entry_date === date)
-    const freshFood = (await db.food_entries.where('entry_date').equals(date).toArray()).filter((entry) => entry.user_id === userId && !entry.deleted_at)
-    await saveRecord('body_entries', {
-      ...(bodyEntry ?? createBase(userId)),
-      entry_date: date,
-      weight_kg: bodyEntry?.weight_kg ?? null,
-      steps: bodyEntry?.steps ?? null,
-      calories: Math.round(sumFood(freshFood).calories),
-    })
-  }
-
   async function removeFood(entry: FoodEntry) {
     await softDeleteRecord('food_entries', entry)
-    await recalculateBodyCalories()
   }
 
   const micronutrientTotals = useMemo(() => nutrientReferences.reduce<Record<string, number>>((result, nutrient) => {
@@ -181,7 +169,6 @@ export function NutritionScreen({ userId, profile }: { userId: string; profile: 
         date={date}
         previousEntries={entries}
         onClose={() => setActiveMeal(null)}
-        onSaved={recalculateBodyCalories}
       />
       <MealManager open={manageMeals} meals={mealSlots} userId={userId} onClose={() => setManageMeals(false)} />
       <Modal open={Boolean(microInfo)} title={microInfo?.label ?? 'Nährstoff'} onClose={() => setMicroInfo(null)}>
@@ -200,7 +187,6 @@ function FoodSearchModal({
   date,
   previousEntries,
   onClose,
-  onSaved,
 }: {
   open: boolean
   meal: MealSlot | null
@@ -208,7 +194,6 @@ function FoodSearchModal({
   date: string
   previousEntries: FoodEntry[]
   onClose: () => void
-  onSaved: () => Promise<void>
 }) {
   const [query, setQuery] = useState('')
   const [manual, setManual] = useState(false)
@@ -226,6 +211,7 @@ function FoodSearchModal({
   const [carbs, setCarbs] = useState('')
   const [fat, setFat] = useState('')
   const [micronutrients, setMicronutrients] = useState<Record<string, number>>({})
+  const [portion, setPortion] = useState<FoodPortion | null>(null)
   const [showMicroEditor, setShowMicroEditor] = useState(false)
 
   const recent = useMemo(() => Array.from(new Map(previousEntries.slice().reverse().map((entry) => [entry.name.toLowerCase(), entry])).values())
@@ -243,6 +229,7 @@ function FoodSearchModal({
     setCarbs('')
     setFat('')
     setMicronutrients({})
+    setPortion(null)
     setShowMicroEditor(false)
     setManual(true)
   }
@@ -257,6 +244,9 @@ function FoodSearchModal({
     setCarbs(String(entry.carbs_g))
     setFat(String(entry.fat_g))
     setMicronutrients(entry.micronutrients)
+    setPortion(entry.portion_grams && entry.unit === 'piece'
+      ? { label: entry.portion_label || `${entry.amount} Stück`, amount: entry.amount, unit: 'piece', grams: entry.portion_grams }
+      : null)
     setShowMicroEditor(false)
     setSelectedProduct(null)
     setManual(true)
@@ -267,20 +257,48 @@ function FoodSearchModal({
     setName(product.name)
     setBrand(product.brand)
     setUnit(product.unit)
-    applyProductAmount(product, '100')
+    setPortion(null)
+    applyProductAmount(product, '100', product.unit, null)
     setShowMicroEditor(false)
     setManual(true)
   }
 
-  function applyProductAmount(product: FoodSearchResult, rawAmount: string) {
+  function applyProductAmount(product: FoodSearchResult, rawAmount: string, amountUnit = unit, activePortion = portion) {
     setAmount(rawAmount)
     const numericAmount = Number(rawAmount)
-    const factor = Number.isFinite(numericAmount) ? numericAmount / 100 : 0
+    const baseAmount = amountUnit === 'piece' ? numericAmount * (activePortion?.grams ?? 0) : numericAmount
+    const factor = Number.isFinite(baseAmount) ? baseAmount / 100 : 0
     setCalories(formatInputNumber(product.caloriesPer100 * factor))
     setProtein(formatInputNumber(product.proteinPer100 * factor))
     setCarbs(formatInputNumber(product.carbsPer100 * factor))
     setFat(formatInputNumber(product.fatPer100 * factor))
     setMicronutrients(Object.fromEntries(Object.entries(product.micronutrientsPer100).map(([key, value]) => [key, value * factor])))
+  }
+
+  function selectPortion(value: string) {
+    if (!selectedProduct) return
+    if (value === 'custom') {
+      setPortion(null)
+      setUnit(selectedProduct.unit)
+      applyProductAmount(selectedProduct, '100', selectedProduct.unit, null)
+      return
+    }
+    const next = selectedProduct.portions[Number(value)]
+    if (!next) return
+    setPortion(next)
+    setUnit(next.unit)
+    applyProductAmount(selectedProduct, String(next.amount), next.unit, next)
+  }
+
+  function changeUnit(nextUnit: FoodEntry['unit']) {
+    setUnit(nextUnit)
+    if (!selectedProduct) {
+      setPortion(null)
+      return
+    }
+    const nextPortion = nextUnit === 'piece' ? portion : null
+    setPortion(nextPortion)
+    applyProductAmount(selectedProduct, amount, nextUnit, nextPortion)
   }
 
   async function submitSearch(event: FormEvent) {
@@ -302,22 +320,29 @@ function FoodSearchModal({
 
   async function addFood() {
     if (!meal || !name.trim() || !calories) return
+    const numericAmount = Number(amount)
+    const numericCalories = Number(calories)
+    if (!Number.isFinite(numericAmount) || numericAmount <= 0 || !Number.isFinite(numericCalories) || numericCalories < 0) return
     const entry: FoodEntry = {
       ...createBase(userId),
       meal_slot_id: meal.id,
       entry_date: date,
       name: name.trim(),
       brand: brand.trim(),
-      amount: Number(amount),
+      amount: numericAmount,
       unit,
-      calories: Number(calories),
+      calories: numericCalories,
       protein_g: Number(protein || 0),
       carbs_g: Number(carbs || 0),
       fat_g: Number(fat || 0),
       micronutrients,
+      food_source: selectedProduct?.source,
+      source_id: selectedProduct?.id,
+      preparation_state: selectedProduct?.preparationState ?? 'unknown',
+      portion_grams: portion?.grams ?? null,
+      portion_label: portion?.label ?? null,
     }
     await saveRecord('food_entries', entry)
-    await onSaved()
     setManual(false)
     setQuery('')
     setResults([])
@@ -325,6 +350,7 @@ function FoodSearchModal({
     setName('')
     setBrand('')
     setSelectedProduct(null)
+    setPortion(null)
     onClose()
   }
 
@@ -347,6 +373,7 @@ function FoodSearchModal({
     setSearchedQuery('')
     setSearchError('')
     setSelectedProduct(null)
+    setPortion(null)
     setShowMicroEditor(false)
     onClose()
   }
@@ -373,7 +400,7 @@ function FoodSearchModal({
                   return (
                     <button className="food-result" key={`${product.id}-${index}`} onClick={() => useProduct(product)}>
                       <span className="food-result__icon"><Utensils size={18} /></span>
-                      <span><strong>{product.name}</strong><small>{product.brand || 'Marke nicht angegeben'} · {Math.round(product.caloriesPer100)} kcal / 100 {product.unit}</small><small className={microCount ? 'food-result__micros food-result__micros--ready' : 'food-result__micros'}>{product.source === 'usda' ? 'USDA-Analyse · ' : ''}{microCount ? `${microCount} Mikronährstoffe enthalten` : 'Keine Mikronährstoffdaten'}</small></span>
+                      <span><strong>{product.name}</strong><small>{product.brand || 'Marke nicht angegeben'} · {Math.round(product.caloriesPer100)} kcal / 100 {product.unit}</small><small>{formatPreparationState(product.preparationState)}{product.portions.length ? ` · ${product.portions.length} Portionen` : ''}</small><small className={microCount ? 'food-result__micros food-result__micros--ready' : 'food-result__micros'}>{product.source === 'usda' ? 'USDA-Analyse · ' : ''}{microCount ? `${microCount} Mikronährstoffe enthalten` : 'Keine Mikronährstoffdaten'}</small></span>
                       <Plus size={18} />
                     </button>
                   )
@@ -396,12 +423,20 @@ function FoodSearchModal({
         </>
       ) : (
         <>
-          {selectedProduct && <div className="database-selection"><Database size={18} /><div><strong>{selectedProduct.brand || 'Aus der Lebensmitteldatenbank'}</strong><span>{Object.keys(selectedProduct.micronutrientsPer100).length ? `${Object.keys(selectedProduct.micronutrientsPer100).length} Mikronährstoffe werden mit der Menge angepasst.` : 'Dieser Datensatz enthält nur Kalorien und Makros.'}</span></div></div>}
+          {selectedProduct && <div className="database-selection"><Database size={18} /><div><strong>{selectedProduct.brand || 'Aus der Lebensmitteldatenbank'}</strong><span>{formatPreparationState(selectedProduct.preparationState)} · {Object.keys(selectedProduct.micronutrientsPer100).length ? `${Object.keys(selectedProduct.micronutrientsPer100).length} Mikronährstoffe werden mit der Menge angepasst.` : 'Dieser Datensatz enthält nur Kalorien und Makros.'}</span></div></div>}
           <Field label="Lebensmittel" value={name} onChange={(event) => setName(event.target.value)} placeholder="z. B. Skyr" autoFocus />
           <Field label="Marke (optional)" value={brand} onChange={(event) => setBrand(event.target.value)} placeholder="z. B. K-Classic" maxLength={120} />
+          {selectedProduct && selectedProduct.portions.length > 0 && <SelectField label="Portion" value={portion ? String(selectedProduct.portions.findIndex((item) => item.label === portion.label)) : 'custom'} onChange={(event) => selectPortion(event.target.value)}>
+            <option value="custom">Eigene Menge</option>
+            {selectedProduct.portions.map((item, index) => <option value={index} key={`${item.label}-${index}`}>{item.label}</option>)}
+          </SelectField>}
           <div className="input-row">
-            <Field label="Menge" type="number" min="0.1" step="0.1" value={amount} onChange={(event) => selectedProduct ? applyProductAmount(selectedProduct, event.target.value) : setAmount(event.target.value)} />
-            <SelectField label="Einheit" value={unit} onChange={(event) => setUnit(event.target.value as FoodEntry['unit'])}><option value="g">Gramm</option><option value="ml">Milliliter</option><option value="piece">Stück</option></SelectField>
+            <Field label="Menge" type="number" min="0.1" step="0.1" value={amount} onChange={(event) => selectedProduct ? applyProductAmount(selectedProduct, event.target.value, unit, portion) : setAmount(event.target.value)} />
+            <SelectField label="Einheit" value={unit} onChange={(event) => changeUnit(event.target.value as FoodEntry['unit'])}>
+              {selectedProduct
+                ? <><option value={selectedProduct.unit}>{selectedProduct.unit === 'ml' ? 'Milliliter' : 'Gramm'}</option>{selectedProduct.portions.some((item) => item.unit === 'piece') && <option value="piece">Stück</option>}</>
+                : <><option value="g">Gramm</option><option value="ml">Milliliter</option><option value="piece">Stück</option></>}
+            </SelectField>
           </div>
           <Field label="Kalorien für diese Menge" type="number" min="0" value={calories} onChange={(event) => setCalories(event.target.value)} placeholder="0" />
           <div className="grid-3 body-inputs">
@@ -430,6 +465,14 @@ function FoodSearchModal({
       )}
     </Modal>
   )
+}
+
+function formatPreparationState(state: FoodSearchResult['preparationState']) {
+  if (state === 'raw') return 'Roh'
+  if (state === 'dry') return 'Trocken'
+  if (state === 'cooked') return 'Gekocht'
+  if (state === 'prepared') return 'Zubereitet'
+  return 'Zustand nicht angegeben'
 }
 
 function formatInputNumber(value: number) {

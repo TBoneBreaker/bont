@@ -23,6 +23,8 @@ interface UsdaFood {
   brandOwner?: string
   brandName?: string
   dataType?: string
+  servingSize?: number
+  servingSizeUnit?: string
   foodNutrients?: UsdaNutrient[]
 }
 
@@ -39,6 +41,9 @@ const fields = [
   'brands',
   'quantity',
   'product_quantity_unit',
+  'serving_size',
+  'serving_quantity',
+  'serving_quantity_unit',
   'nutriments',
 ].join(',')
 
@@ -54,13 +59,20 @@ const usdaNutrients = [
   { key: 'vitamin-c', ids: [1162], names: ['vitamin c'], unit: 'mg' },
   { key: 'vitamin-b1', ids: [1165], names: ['thiamin'], unit: 'mg' },
   { key: 'vitamin-b2', ids: [1166], names: ['riboflavin'], unit: 'mg' },
+  { key: 'niacin', ids: [1167], names: ['niacin'], unit: 'mg' },
   { key: 'vitamin-b6', ids: [1175], names: ['vitamin b-6', 'vitamin b6'], unit: 'mg' },
+  { key: 'pantothenic-acid', ids: [1170], names: ['pantothenic acid'], unit: 'mg' },
+  { key: 'biotin', ids: [1176], names: ['biotin'], unit: 'µg' },
   { key: 'folate', ids: [1177], names: ['folate, total'], unit: 'µg' },
   { key: 'vitamin-b12', ids: [1178], names: ['vitamin b-12', 'vitamin b12'], unit: 'µg' },
   { key: 'calcium', ids: [1087], names: ['calcium'], unit: 'mg' },
   { key: 'magnesium', ids: [1090], names: ['magnesium'], unit: 'mg' },
+  { key: 'phosphorus', ids: [1091], names: ['phosphorus'], unit: 'mg' },
   { key: 'iron', ids: [1089], names: ['iron'], unit: 'mg' },
   { key: 'zinc', ids: [1095], names: ['zinc'], unit: 'mg' },
+  { key: 'copper', ids: [1098], names: ['copper'], unit: 'mg' },
+  { key: 'manganese', ids: [1101], names: ['manganese'], unit: 'mg' },
+  { key: 'sodium', ids: [1093], names: ['sodium'], unit: 'mg' },
   { key: 'iodine', ids: [1100], names: ['iodine'], unit: 'µg' },
   { key: 'selenium', ids: [1103], names: ['selenium'], unit: 'µg' },
   { key: 'potassium', ids: [1092], names: ['potassium'], unit: 'mg' },
@@ -115,10 +127,10 @@ export default async function handler(request: RequestLike, response: ResponseLi
     ...(usda.status === 'fulfilled' ? usda.value : []),
   ]
 
-  if (products.length === 0) {
+  if (products.length === 0 && openFoodFacts.status === 'rejected' && usda.status === 'rejected') {
     console.error('[api/foods] All food sources failed', {
-      openFoodFacts: openFoodFacts.status === 'rejected' ? String(openFoodFacts.reason) : 'no results',
-      usda: usda.status === 'rejected' ? String(usda.reason) : 'no results',
+      openFoodFacts: String(openFoodFacts.reason),
+      usda: String(usda.reason),
     })
     return response.status(502).json({ error: 'Die Lebensmitteldatenbanken antworten gerade nicht.' })
   }
@@ -136,7 +148,9 @@ async function searchOpenFoodFacts(query: string) {
 
   if (modern.ok) {
     const data = await modern.json() as { hits?: Record<string, unknown>[] }
-    if (Array.isArray(data.hits)) return data.hits.map((product) => ({ ...product, source: 'open_food_facts' }))
+    if (Array.isArray(data.hits) && data.hits.length > 0) {
+      return data.hits.map((product) => ({ ...product, source: 'open_food_facts' }))
+    }
   }
 
   const legacyParams = new URLSearchParams({
@@ -201,6 +215,9 @@ function usdaFoodToProduct(food: UsdaFood, originalQuery: string, translatedQuer
   }
 
   if (typeof nutriments['energy-kcal_100g'] !== 'number') return null
+  const servingSize = typeof food.servingSize === 'number' && Number.isFinite(food.servingSize) && food.servingSize > 0
+    ? food.servingSize
+    : undefined
   return {
     code: `usda-${food.fdcId}`,
     product_name: localizeUsdaName(food.description, originalQuery, translatedQuery),
@@ -210,7 +227,8 @@ function usdaFoodToProduct(food: UsdaFood, originalQuery: string, translatedQuer
     nutriments,
     source: 'usda',
     data_type: food.dataType,
-    search_match: originalQuery,
+    serving_quantity: servingSize,
+    serving_quantity_unit: food.servingSizeUnit,
   }
 }
 
@@ -227,14 +245,12 @@ function micronutrientCount(nutriments: Record<string, number | string>) {
 function usdaProductScore(product: NonNullable<ReturnType<typeof usdaFoodToProduct>>, translatedQuery: string) {
   const name = String(product.product_name).toLowerCase()
   const translated = translatedQuery.toLowerCase()
-  const firstTerm = translated.split(/\s+/)[0]
   let score = micronutrientCount(product.nutriments) * 2
-  if (name === 'nudeln, trocken') score += 70
-  else if (name === 'nudeln, gekocht') score += 65
-  else if (name === 'banane, roh' || name === 'ei, ganz und roh') score += 70
-  if (name.startsWith(firstTerm)) score += 45
-  if (/\b(raw|plain|cooked|dry|uncooked|fresh)\b/.test(name)) score += 35
-  if (/\b(dehydrated|powder|chips|pudding|nectar|salad|mixture|mix|with|sauce|baked|vegetable|flavored|gluten free)\b/.test(name)) score -= 45
+  if (name === translated) score += 100
+  else if (name.startsWith(translated)) score += 70
+  else if (name.includes(translated)) score += 35
+  if (/\b(raw|plain|cooked|dry|uncooked|fresh|boiled|prepared)\b/.test(name)) score += 25
+  if (/\b(dehydrated|powder|chips|pudding|nectar|salad|mixture|mix|with|sauce|baked|vegetable|flavored|gluten free)\b/.test(name)) score -= 35
   if (product.data_type === 'Foundation') score += 25
   else if (product.data_type === 'SR Legacy') score += 20
   else if (product.data_type === 'Survey (FNDDS)') score += 12

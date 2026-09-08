@@ -76,6 +76,15 @@ describe('searchFoods', () => {
           potassium_unit: 'mg',
           'vitamin-b6_100g': 0.367,
           'vitamin-b6_unit': 'mg',
+          niacin_100g: 0.785,
+          'pantothenic-acid_100g': 0.334,
+          'pantothenic-acid_unit': 'mg',
+          biotin_100g: 5,
+          biotin_unit: 'µg',
+          phosphorus_100g: 22,
+          copper_100g: 0.078,
+          manganese_100g: 0.27,
+          sodium_100g: 1,
         },
       }] }),
     }))
@@ -85,8 +94,42 @@ describe('searchFoods', () => {
       source: 'usda',
       dataType: 'Foundation',
       caloriesPer100: 89,
-      micronutrientsPer100: { potassium: 358, vitamin_b6: 0.367 },
+      micronutrientsPer100: {
+        potassium: 358,
+        vitamin_b6: 0.367,
+        niacin: 0.785,
+        pantothenic_acid: 0.334,
+        biotin: 5,
+        phosphorus: 22,
+        copper: 0.078,
+        manganese: 0.27,
+        sodium: 1,
+      },
     }))
+  })
+
+  it('uses the source nutrition basis for liquids instead of mixing milliliters and grams', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ products: [{
+        code: 'milk-ml',
+        product_name: 'Milch',
+        product_quantity_unit: 'ml',
+        nutriments: {
+          'energy-kcal_100ml': 46,
+          proteins_100ml: 3.4,
+          calcium_100ml: 120,
+          calcium_unit: 'mg',
+        },
+      }] }),
+    }))
+
+    await expect(searchFoods('Milch')).resolves.toEqual([expect.objectContaining({
+      unit: 'ml',
+      caloriesPer100: 46,
+      proteinPer100: 3.4,
+      micronutrientsPer100: { calcium: 120 },
+    })])
   })
 
   it('puts the detailed generic match before incomplete product variants', async () => {
@@ -101,5 +144,33 @@ describe('searchFoods', () => {
     const results = await searchFoods('Nudeln')
     expect(results.map((product) => product.id)).toEqual(['usda-1', 'off-1'])
     expect(results[0].micronutrientsPer100).toEqual({ iron: 3.3 })
+  })
+
+  it('ranks a direct product name above a composed USDA result', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ products: [
+        { code: 'usda-toast', product_name: 'Nutella Toast', brands: 'USDA FoodData Central', source: 'usda', search_match: 'Nutella', nutriments: { 'energy-kcal_100g': 280 } },
+        { code: 'off-nutella', product_name: 'Nutella', brands: 'Ferrero', nutriments: { 'energy-kcal_100g': 539 } },
+      ] }),
+    }))
+
+    const results = await searchFoods('Nutella')
+    expect(results.map((product) => product.id)).toEqual(['off-nutella', 'usda-toast'])
+  })
+
+  it('exposes preparation state and natural piece portions', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ products: [{
+        code: 'banana-raw',
+        product_name_de: 'Banane, roh',
+        nutriments: { 'energy-kcal_100g': 89 },
+      }] }),
+    }))
+
+    const [result] = await searchFoods('Banane')
+    expect(result.preparationState).toBe('raw')
+    expect(result.portions).toContainEqual(expect.objectContaining({ label: '1 mittelgroße Banane', grams: 118, unit: 'piece' }))
   })
 })

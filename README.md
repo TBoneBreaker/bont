@@ -41,7 +41,7 @@ Die SQL-Migrationen liegen unter `supabase/migrations`. Jede Tabelle hat aktive 
 
 ## Anmeldung
 
-Die erste Version verwendet einen einmaligen E-Mail-Link. In Supabase müssen die lokale URL und die Vercel-URL unter **Authentication → URL Configuration** als erlaubte Redirect-URLs hinterlegt sein.
+Die Standardanmeldung verwendet E-Mail-Adresse und Passwort. Für die Registrierung kann Supabase zusätzlich eine E-Mail-Bestätigung verlangen; ein optionaler einmaliger E-Mail-Link ist nur als alternative Login-Methode verfügbar. In Supabase müssen die lokale URL und die Vercel-URL unter **Authentication → URL Configuration** als erlaubte Redirect-URLs hinterlegt sein.
 
 ## Befehle
 

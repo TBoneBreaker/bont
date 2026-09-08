@@ -1,19 +1,15 @@
 import { createClient } from '@supabase/supabase-js'
 
-// Supabase publishable keys are designed to be used in browser applications.
-// Environment variables can still override these defaults for other deployments.
-const defaultUrl = 'https://otygkrovpsvqtpenjicd.supabase.co'
-const defaultPublishableKey = 'sb_publishable_vqSFCdipful6hGJrxImlrQ_XN8azhS2'
-
-const url = import.meta.env.VITE_SUPABASE_URL?.trim() || defaultUrl
-const publishableKey =
-  import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY?.trim() || defaultPublishableKey
+const url = import.meta.env.VITE_SUPABASE_URL?.trim() ?? ''
+const publishableKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY?.trim() ?? ''
 
 export const isSupabaseConfigured = Boolean(url && publishableKey)
 
+// Keep module imports safe while the app renders its configuration error.
+// This is never used for a request because App gates auth behind isSupabaseConfigured.
 export const supabase = createClient(
-  url,
-  publishableKey,
+  url || 'https://placeholder.invalid',
+  publishableKey || 'bont-not-configured',
   {
     auth: {
       persistSession: true,

@@ -17,19 +17,14 @@ import {
 } from 'lucide-react'
 import { Button, Card, EmptyState, Field, IconButton, Modal, NumberStepper, ScreenHeader } from '../../components/ui'
 import { db, saveRecord } from '../../lib/db'
+import { dateAtNoon, localDateString } from '../../lib/date'
 import type { Exercise, TrainingDay, TrainingPlan, WorkoutSession, WorkoutSet } from '../../types'
 import { createBase } from '../../types'
 import { PlanBuilder } from './PlanBuilder'
 
 type TrainingView = 'overview' | 'templates'
 
-const today = () => {
-  const date = new Date()
-  const offset = date.getTimezoneOffset() * 60_000
-  return new Date(date.getTime() - offset).toISOString().slice(0, 10)
-}
-
-const dateAtNoon = (date: string) => `${date}T12:00:00.000Z`
+const today = localDateString
 
 export function TrainingScreen({ userId, displayName }: { userId: string; displayName: string }) {
   const [view, setView] = useState<TrainingView>('overview')

@@ -22,6 +22,7 @@ export function App() {
   const demoMode = window.location.pathname === '/demo' || new URLSearchParams(window.location.search).has('demo')
   const [session, setSession] = useState<Session | null>(null)
   const [authReady, setAuthReady] = useState(false)
+  const [authError, setAuthError] = useState('')
   const [initialSyncReady, setInitialSyncReady] = useState(false)
   const [initialSyncError, setInitialSyncError] = useState('')
   const [syncAttempt, setSyncAttempt] = useState(0)
@@ -50,12 +51,18 @@ export function App() {
       setAuthReady(true)
       return
     }
-    void supabase.auth.getSession().then(({ data }) => {
+    void supabase.auth.getSession().then(({ data, error }) => {
       setSession(data.session)
+      setAuthError(error?.message ?? '')
+      setAuthReady(true)
+    }).catch((error: unknown) => {
+      setSession(null)
+      setAuthError(error instanceof Error ? error.message : 'Die Anmeldung konnte nicht wiederhergestellt werden.')
       setAuthReady(true)
     })
     const { data } = supabase.auth.onAuthStateChange((_event, nextSession) => {
       setSession(nextSession)
+      setAuthError('')
       setAuthReady(true)
     })
     return () => data.subscription.unsubscribe()
@@ -111,7 +118,7 @@ export function App() {
     return <div data-theme={resolvedTheme}><main className="center-screen"><div className="brand-mark">B</div><div><h1>Verbindung fehlt</h1><p className="muted">Die Supabase-Umgebungsvariablen sind noch nicht gesetzt.</p></div></main></div>
   }
   if (!authReady) return <div data-theme={resolvedTheme}><LoadingScreen /></div>
-  if (!session && !demoMode) return <div data-theme={resolvedTheme}><AuthScreen /></div>
+  if (!session && !demoMode) return <div data-theme={resolvedTheme}><AuthScreen initialError={authError ? 'Die gespeicherte Anmeldung konnte nicht geladen werden. Bitte melde dich erneut an.' : ''} /></div>
   if (initialSyncError) return (
     <div data-theme={resolvedTheme}>
       <main className="center-screen">

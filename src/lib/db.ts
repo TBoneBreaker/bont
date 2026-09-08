@@ -128,8 +128,40 @@ async function runSync(userId: string, full = false): Promise<SyncResult> {
       .sort((a, b) => (tablePriority.get(a.table) ?? 99) - (tablePriority.get(b.table) ?? 99)
         || a.created_at.localeCompare(b.created_at))
     for (const item of queued) {
-      const { error } = await supabase.from(item.table).upsert(item.payload, { onConflict: 'id' })
+      let payload = item.payload
+      let conflictTarget = 'id'
+      let replacedLocalId: string | null = null
+
+      if (item.table === 'body_entries') {
+        const bodyPayload = item.payload as BodyEntry
+        const { data: remoteEntry, error: lookupError } = await supabase
+          .from('body_entries')
+          .select('*')
+          .eq('user_id', userId)
+          .eq('entry_date', bodyPayload.entry_date)
+          .maybeSingle()
+        if (lookupError) throw lookupError
+
+        // Body metrics are independent fields. Merge null fields with the
+        // current cloud row so an offline weight entry cannot erase a
+        // separately recorded calorie or step value from another device.
+        if (remoteEntry) {
+          replacedLocalId = bodyPayload.id !== remoteEntry.id ? bodyPayload.id : null
+          payload = {
+            ...remoteEntry,
+            ...bodyPayload,
+            id: remoteEntry.id,
+            weight_kg: bodyPayload.weight_kg ?? remoteEntry.weight_kg,
+            calories: bodyPayload.calories ?? remoteEntry.calories,
+            steps: bodyPayload.steps ?? remoteEntry.steps,
+          }
+        }
+        conflictTarget = 'user_id,entry_date'
+      }
+
+      const { error } = await supabase.from(item.table).upsert(payload, { onConflict: conflictTarget })
       if (error) throw error
+      if (replacedLocalId) await db.body_entries.delete(replacedLocalId)
       const current = await db.outbox.get(item.key)
       if (current?.created_at === item.created_at) await db.outbox.delete(item.key)
       pushed += 1

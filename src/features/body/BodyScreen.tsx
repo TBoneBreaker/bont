@@ -1,19 +1,16 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { CalendarDays, Check, ChevronLeft, ChevronRight, Footprints, Gauge, Plus, Scale, Sparkles, Utensils } from 'lucide-react'
+import { CalendarDays, Check, Footprints, Gauge, Plus, Scale, Sparkles, Utensils } from 'lucide-react'
 import { Button, Card, Field, Metric, Modal, NumberStepper, ProgressBar } from '../../components/ui'
 import { db, saveRecord } from '../../lib/db'
+import { localDateString } from '../../lib/date'
 import { estimateMaintenance, weeklyAverages } from '../../lib/maintenance'
 import type { BodyEntry } from '../../types'
 import { createBase } from '../../types'
 
 type BodyMetric = 'weight_kg' | 'calories' | 'steps'
 
-const today = () => {
-  const date = new Date()
-  const offset = date.getTimezoneOffset() * 60_000
-  return new Date(date.getTime() - offset).toISOString().slice(0, 10)
-}
+const today = localDateString
 
 export function BodyScreen({ userId }: { userId: string }) {
   const entries = useLiveQuery(
@@ -208,12 +205,30 @@ function MetricChart({
 }) {
   const pageSize = 7
   const pageCount = Math.max(1, Math.ceil(values.length / pageSize))
-  const [page, setPage] = useState(0)
+  const storageKey = `bont-chart-page:${label}`
+  const [page, setPage] = useState(() => {
+    if (typeof sessionStorage === 'undefined') return 0
+    try {
+      const stored = Number(sessionStorage.getItem(storageKey))
+      return Number.isInteger(stored) && stored >= 0 ? stored : 0
+    } catch {
+      return 0
+    }
+  })
   const pointerStart = useRef<number | null>(null)
 
   useEffect(() => {
+    if (values.length === 0) return
     setPage((current) => Math.min(current, pageCount - 1))
-  }, [pageCount])
+  }, [pageCount, values.length])
+
+  useEffect(() => {
+    try {
+      if (typeof sessionStorage !== 'undefined') sessionStorage.setItem(storageKey, String(page))
+    } catch {
+      // Persisting the chart viewport is optional.
+    }
+  }, [page, storageKey])
 
   const end = Math.max(0, values.length - page * pageSize)
   const start = Math.max(0, end - pageSize)
@@ -237,9 +252,6 @@ function MetricChart({
   const line = points.map((point) => `${point.x},${point.y}`).join(' ')
   const yTicks = [yMax, (yMax + yMin) / 2, yMin]
   const firstDate = visibleValues[0]?.date
-  const showOlder = page < pageCount - 1
-  const showNewer = page > 0
-
   function changePage(next: number) {
     setPage(Math.max(0, Math.min(pageCount - 1, next)))
   }
@@ -261,7 +273,7 @@ function MetricChart({
       </div>
       <div
         className="metric-chart__plot"
-        onPointerDown={(event) => { pointerStart.current = event.clientX }}
+        onPointerDown={(event) => { pointerStart.current = event.clientX; event.currentTarget.setPointerCapture(event.pointerId) }}
         onPointerUp={(event) => finishSwipe(event.clientX)}
         onPointerCancel={() => { pointerStart.current = null }}
       >
@@ -291,13 +303,7 @@ function MetricChart({
           </svg>
         ) : <div className="metric-chart__empty">Mit deinem ersten Eintrag entsteht hier der Verlauf.</div>}
       </div>
-      {values.length > pageSize && (
-        <div className="metric-chart__pager">
-          <button type="button" disabled={!showOlder} onClick={() => changePage(page + 1)} aria-label={`${label}: ältere Einträge zeigen`}><ChevronLeft size={17} /> Älter</button>
-          <span>7 Werte pro Ansicht</span>
-          <button type="button" disabled={!showNewer} onClick={() => changePage(page - 1)} aria-label={`${label}: neuere Einträge zeigen`}>Neuer <ChevronRight size={17} /></button>
-        </div>
-      )}
+      {values.length > pageSize && <div className="metric-chart__pager"><span>Horizontal wischen oder mit der Maus ziehen · 7 Werte pro Ansicht</span></div>}
     </Card>
   )
 }

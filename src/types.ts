@@ -2,6 +2,8 @@ export type Sex = 'male' | 'female'
 export type ThemeMode = 'light' | 'dark' | 'system'
 export type GoalMode = 'maintain' | 'cut' | 'bulk'
 export type SyncOperation = 'upsert'
+export type FoodSource = 'open_food_facts' | 'usda'
+export type FoodPreparationState = 'raw' | 'dry' | 'cooked' | 'prepared' | 'unknown'
 
 export interface BaseRecord {
   id: string
@@ -91,6 +93,11 @@ export interface FoodEntry extends BaseRecord {
   carbs_g: number
   fat_g: number
   micronutrients: Record<string, number>
+  food_source?: FoodSource
+  source_id?: string
+  preparation_state?: FoodPreparationState
+  portion_grams?: number | null
+  portion_label?: string | null
 }
 
 export interface OutboxItem {

@@ -7,15 +7,15 @@ type AuthMode = 'login' | 'register'
 type LoginMethod = 'magic-link' | 'password'
 type SentMessage = 'registration' | 'magic-link' | null
 
-export function AuthScreen() {
+export function AuthScreen({ initialError = '' }: { initialError?: string }) {
   const [mode, setMode] = useState<AuthMode>('login')
-  const [loginMethod, setLoginMethod] = useState<LoginMethod>('magic-link')
+  const [loginMethod, setLoginMethod] = useState<LoginMethod>('password')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [passwordConfirmation, setPasswordConfirmation] = useState('')
   const [sent, setSent] = useState<SentMessage>(null)
   const [loading, setLoading] = useState<'password' | 'magic-link' | null>(null)
-  const [error, setError] = useState('')
+  const [error, setError] = useState(initialError)
 
   function changeMode(nextMode: AuthMode) {
     setMode(nextMode)
@@ -23,7 +23,7 @@ export function AuthScreen() {
     setPasswordConfirmation('')
     setError('')
     setSent(null)
-    if (nextMode === 'login') setLoginMethod('magic-link')
+    if (nextMode === 'login') setLoginMethod('password')
   }
 
   async function submit(event: FormEvent) {
