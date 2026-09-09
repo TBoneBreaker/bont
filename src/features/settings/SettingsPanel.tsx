@@ -5,7 +5,7 @@ import { Button, Card, Field, InfoNote, Modal, SelectField } from '../../compone
 import { db, saveRecord, syncUser } from '../../lib/db'
 import { preliminaryMaintenance } from '../../lib/maintenance'
 import { supabase } from '../../lib/supabase'
-import type { Profile, Sex, ThemeMode } from '../../types'
+import type { ActivityLevel, BodyFatCategory, Profile, Sex, ThemeMode } from '../../types'
 
 export function SettingsPanel({
   open,
@@ -137,8 +137,8 @@ function ProfileEditor({ open, profile, onClose }: { open: boolean; profile: Pro
   const [sex, setSex] = useState<Sex>(profile.sex)
   const [height, setHeight] = useState(String(profile.height_cm))
   const [weight, setWeight] = useState(String(profile.initial_weight_kg))
-  const [activity, setActivity] = useState(profile.activity_level)
-  const [bodyFat, setBodyFat] = useState(profile.body_fat_category)
+  const [activity, setActivity] = useState<ActivityLevel>(profile.activity_level)
+  const [bodyFat, setBodyFat] = useState<BodyFatCategory>(profile.body_fat_category)
 
   useEffect(() => {
     setName(profile.display_name)
@@ -177,8 +177,8 @@ function ProfileEditor({ open, profile, onClose }: { open: boolean; profile: Pro
       <Field label="Geburtsdatum" type="date" value={birthDate} onChange={(event) => setBirthDate(event.target.value)} />
       <SelectField label="Biologisches Geschlecht für Berechnung" value={sex} onChange={(event) => setSex(event.target.value as Sex)}><option value="male">Männlich</option><option value="female">Weiblich</option></SelectField>
       <div className="input-row"><Field label="Größe (cm)" type="number" value={height} onChange={(event) => setHeight(event.target.value)} /><Field label="Startgewicht (kg)" type="number" step="0.1" value={weight} onChange={(event) => setWeight(event.target.value)} /></div>
-      <SelectField label="Alltagsaktivität" value={activity} onChange={(event) => setActivity(event.target.value)}><option value="low">Überwiegend sitzend</option><option value="light">Leicht aktiv</option><option value="moderate">Aktiv</option><option value="high">Sehr aktiv</option><option value="athlete">Extrem aktiv</option></SelectField>
-      <SelectField label="Körperfett-Kategorie" value={bodyFat} onChange={(event) => setBodyFat(event.target.value)}><option value="very_low">Sehr niedrig</option><option value="athletic">Athletisch</option><option value="fit">Fit</option><option value="average">Durchschnitt</option><option value="high">Erhöht</option></SelectField>
+      <SelectField label="Alltagsaktivität" value={activity} onChange={(event) => setActivity(event.target.value as ActivityLevel)}><option value="low">Überwiegend sitzend</option><option value="light">Leicht aktiv</option><option value="moderate">Aktiv</option><option value="high">Sehr aktiv</option><option value="athlete">Extrem aktiv</option></SelectField>
+      <SelectField label="Körperfett-Kategorie" value={bodyFat} onChange={(event) => setBodyFat(event.target.value as BodyFatCategory)}><option value="very_low">Sehr niedrig</option><option value="athletic">Athletisch</option><option value="fit">Fit</option><option value="average">Durchschnitt</option><option value="high">Erhöht</option></SelectField>
       <InfoNote>Änderungen aktualisieren nur die vorläufige Kalorienschätzung. Sobald genügend Verlaufsdaten vorhanden sind, hat die datenbasierte Schätzung Vorrang.</InfoNote>
       <Button full disabled={!name.trim() || !birthDate || !height || !weight} onClick={() => void save()}>Änderungen speichern</Button>
     </Modal>

@@ -30,16 +30,16 @@ export function BodyScreen({ userId }: { userId: string }) {
 
   const existing = entries.find((entry) => entry.entry_date === entryDate)
 
-  useEffect(() => {
-    if (!entryOpen) return
-    const previous = entries.filter((entry) => entry.entry_date < entryDate).slice().reverse()
+  function hydrateEntry(nextDate: string) {
+    const selected = entries.find((entry) => entry.entry_date === nextDate)
+    const previous = entries.filter((entry) => entry.entry_date < nextDate).slice().reverse()
     const previousWeight = previous.find((entry) => entry.weight_kg !== null)?.weight_kg
     const previousCalories = previous.find((entry) => entry.calories !== null)?.calories
     const previousSteps = previous.find((entry) => entry.steps !== null)?.steps
-    setWeight(String(existing?.weight_kg ?? previousWeight ?? ''))
-    setCalories(String(existing?.calories ?? previousCalories ?? ''))
-    setSteps(String(existing?.steps ?? previousSteps ?? ''))
-  }, [entryDate, entryOpen, entries, existing?.id, existing?.updated_at])
+    setWeight(String(selected?.weight_kg ?? previousWeight ?? ''))
+    setCalories(String(selected?.calories ?? previousCalories ?? ''))
+    setSteps(String(selected?.steps ?? previousSteps ?? ''))
+  }
 
   const estimate = useMemo(() => estimateMaintenance(entries), [entries])
   const weeks = useMemo(() => weeklyAverages(entries), [entries])
@@ -57,7 +57,9 @@ export function BodyScreen({ userId }: { userId: string }) {
   }), [entries])
 
   function openEntry() {
-    setEntryDate(today())
+    const nextDate = today()
+    setEntryDate(nextDate)
+    hydrateEntry(nextDate)
     setSavedMetric(null)
     setEntryOpen(true)
   }
@@ -155,7 +157,7 @@ export function BodyScreen({ userId }: { userId: string }) {
       <Modal open={entryOpen} title="Werte eintragen" onClose={() => setEntryOpen(false)}>
         <div className="entry-date-card">
           <CalendarDays size={19} />
-          <Field label="Datum" type="date" value={entryDate} max={today()} onChange={(event) => { setEntryDate(event.target.value); setSavedMetric(null) }} />
+          <Field label="Datum" type="date" value={entryDate} max={today()} onChange={(event) => { setEntryDate(event.target.value); hydrateEntry(event.target.value); setSavedMetric(null) }} />
         </div>
         <p className="tiny muted entry-prefill-note">Die letzten Werte sind für schnelleres Eintragen vorbelegt. Gespeichert wird immer nur der Wert, dessen Button du drückst.</p>
 

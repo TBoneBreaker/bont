@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
+import type { Database } from './database.types'
 
 const url = import.meta.env.VITE_SUPABASE_URL?.trim() ?? ''
 const publishableKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY?.trim() ?? ''
@@ -7,7 +8,7 @@ export const isSupabaseConfigured = Boolean(url && publishableKey)
 
 // Keep module imports safe while the app renders its configuration error.
 // This is never used for a request because App gates auth behind isSupabaseConfigured.
-export const supabase = createClient(
+export const supabase = createClient<Database>(
   url || 'https://placeholder.invalid',
   publishableKey || 'bont-not-configured',
   {

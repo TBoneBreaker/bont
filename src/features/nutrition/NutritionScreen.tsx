@@ -7,7 +7,7 @@ import { localDateString } from '../../lib/date'
 import { searchFoods, type FoodPortion, type FoodSearchResult } from '../../lib/food-search'
 import { estimateMaintenance } from '../../lib/maintenance'
 import { getNutrientTarget, nutrientReferences, type NutrientReference } from '../../lib/nutrients'
-import type { FoodEntry, GoalMode, MealSlot, Profile, UserSettings } from '../../types'
+import type { FoodEntry, GoalMode, MealSlot, Profile } from '../../types'
 import { createBase } from '../../types'
 
 const today = localDateString
@@ -234,7 +234,7 @@ function FoodSearchModal({
     setManual(true)
   }
 
-  function useRecent(entry: FoodEntry) {
+  function selectRecent(entry: FoodEntry) {
     setName(entry.name)
     setBrand(entry.brand ?? '')
     setAmount(String(entry.amount))
@@ -252,7 +252,7 @@ function FoodSearchModal({
     setManual(true)
   }
 
-  function useProduct(product: FoodSearchResult) {
+  function selectProduct(product: FoodSearchResult) {
     setSelectedProduct(product)
     setName(product.name)
     setBrand(product.brand)
@@ -389,7 +389,7 @@ function FoodSearchModal({
           </form>
           <Button variant="secondary" full disabled><ScanBarcode size={19} /> Barcode-Scanner folgt in der Handy-App</Button>
           {!searchedQuery && recent.length > 0 && (
-            <div className="stack stack--tight"><span className="eyebrow">Zuletzt verwendet</span>{recent.map((entry) => <button className="recent-food" key={entry.id} onClick={() => useRecent(entry)}><div><strong>{entry.name}</strong><span>{entry.brand ? `${entry.brand} · ` : ''}{entry.amount} {entry.unit} · {Math.round(entry.calories)} kcal</span></div><Plus size={18} /></button>)}</div>
+            <div className="stack stack--tight"><span className="eyebrow">Zuletzt verwendet</span>{recent.map((entry) => <button className="recent-food" key={entry.id} onClick={() => selectRecent(entry)}><div><strong>{entry.name}</strong><span>{entry.brand ? `${entry.brand} · ` : ''}{entry.amount} {entry.unit} · {Math.round(entry.calories)} kcal</span></div><Plus size={18} /></button>)}</div>
           )}
           {results.length > 0 && (
             <div className="stack stack--tight">
@@ -398,7 +398,7 @@ function FoodSearchModal({
                 {results.map((product, index) => {
                   const microCount = Object.keys(product.micronutrientsPer100).length
                   return (
-                    <button className="food-result" key={`${product.id}-${index}`} onClick={() => useProduct(product)}>
+                    <button className="food-result" key={`${product.id}-${index}`} onClick={() => selectProduct(product)}>
                       <span className="food-result__icon"><Utensils size={18} /></span>
                       <span><strong>{product.name}</strong><small>{product.brand || 'Marke nicht angegeben'} · {Math.round(product.caloriesPer100)} kcal / 100 {product.unit}</small><small>{formatPreparationState(product.preparationState)}{product.portions.length ? ` · ${product.portions.length} Portionen` : ''}</small><small className={microCount ? 'food-result__micros food-result__micros--ready' : 'food-result__micros'}>{product.source === 'usda' ? 'USDA-Analyse · ' : ''}{microCount ? `${microCount} Mikronährstoffe enthalten` : 'Keine Mikronährstoffdaten'}</small></span>
                       <Plus size={18} />
@@ -481,7 +481,9 @@ function formatInputNumber(value: number) {
 
 function MealManager({ open, meals, userId, onClose }: { open: boolean; meals: MealSlot[]; userId: string; onClose: () => void }) {
   async function rename(meal: MealSlot, name: string) {
-    await saveRecord('meal_slots', { ...meal, name })
+    const normalized = name.trim()
+    if (!normalized || normalized === meal.name) return
+    await saveRecord('meal_slots', { ...meal, name: normalized })
   }
   async function add() {
     if (meals.length >= 10) return
@@ -497,7 +499,7 @@ function MealManager({ open, meals, userId, onClose }: { open: boolean; meals: M
       <div className="stack stack--tight">
         {meals.map((meal) => (
           <div className="meal-edit-row" key={meal.id}>
-            <input aria-label="Name der Mahlzeit" value={meal.name} maxLength={40} onChange={(event) => void rename(meal, event.target.value)} />
+            <input aria-label="Name der Mahlzeit" defaultValue={meal.name} maxLength={40} onBlur={(event) => { void rename(meal, event.currentTarget.value); event.currentTarget.value = event.currentTarget.value.trim() }} />
             <IconButton label="Mahlzeit entfernen" disabled={meals.length <= 1} onClick={() => void remove(meal)}><Trash2 size={17} /></IconButton>
           </div>
         ))}

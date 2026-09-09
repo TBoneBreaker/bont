@@ -15,7 +15,7 @@ import {
   Plus,
   RotateCcw,
 } from 'lucide-react'
-import { Button, Card, EmptyState, Field, IconButton, Modal, NumberStepper, ScreenHeader } from '../../components/ui'
+import { Button, Card, EmptyState, IconButton, Modal, NumberStepper, ScreenHeader } from '../../components/ui'
 import { db, saveRecord } from '../../lib/db'
 import { dateAtNoon, localDateString } from '../../lib/date'
 import type { Exercise, TrainingDay, TrainingPlan, WorkoutSession, WorkoutSet } from '../../types'
@@ -122,7 +122,7 @@ export function TrainingScreen({ userId, displayName }: { userId: string; displa
     }
   }
 
-  async function useTemplate(template: TrainingPlan) {
+  async function applyTemplate(template: TrainingPlan) {
     const oldActive = plans.filter((plan) => plan.is_active && !plan.is_template)
     for (const plan of oldActive) await saveRecord('training_plans', { ...plan, is_active: false })
     const plan: TrainingPlan = {
@@ -188,7 +188,7 @@ export function TrainingScreen({ userId, displayName }: { userId: string; displa
                 <div><span className="eyebrow">{template.split_size}er-Split</span><h2>{template.name}</h2><p className="muted small">{template.notes || 'Keine Notizen'}</p></div>
                 <IconButton label="Vorlage bearbeiten" onClick={() => setBuilder({ plan: template, template: true })}><MoreHorizontal size={20} /></IconButton>
               </div>
-              <Button full onClick={() => void useTemplate(template)}>Als Plan verwenden <ChevronRight size={18} /></Button>
+              <Button full onClick={() => void applyTemplate(template)}>Als Plan verwenden <ChevronRight size={18} /></Button>
             </Card>
           ))}
         </main>

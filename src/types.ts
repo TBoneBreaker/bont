@@ -1,7 +1,10 @@
 export type Sex = 'male' | 'female'
 export type ThemeMode = 'light' | 'dark' | 'system'
 export type GoalMode = 'maintain' | 'cut' | 'bulk'
+export type ActivityLevel = 'low' | 'light' | 'moderate' | 'high' | 'athlete'
+export type BodyFatCategory = 'very_low' | 'athletic' | 'fit' | 'average' | 'high'
 export type SyncOperation = 'upsert'
+export type OutboxStatus = 'pending' | 'processing' | 'failed' | 'dead_letter'
 export type FoodSource = 'open_food_facts' | 'usda'
 export type FoodPreparationState = 'raw' | 'dry' | 'cooked' | 'prepared' | 'unknown'
 
@@ -19,8 +22,8 @@ export interface Profile extends BaseRecord {
   sex: Sex
   height_cm: number
   initial_weight_kg: number
-  activity_level: string
-  body_fat_category: string
+  activity_level: ActivityLevel
+  body_fat_category: BodyFatCategory
   onboarding_completed: boolean
 }
 
@@ -85,6 +88,7 @@ export interface FoodEntry extends BaseRecord {
   meal_slot_id: string
   entry_date: string
   name: string
+  // Optional for backwards compatibility with records created before the brand migration.
   brand?: string
   amount: number
   unit: 'g' | 'ml' | 'piece'
@@ -100,43 +104,45 @@ export interface FoodEntry extends BaseRecord {
   portion_label?: string | null
 }
 
+export type SyncedRecordMap = {
+  profiles: Profile
+  user_settings: UserSettings
+  training_plans: TrainingPlan
+  training_days: TrainingDay
+  exercises: Exercise
+  workout_sessions: WorkoutSession
+  workout_sets: WorkoutSet
+  body_entries: BodyEntry
+  meal_slots: MealSlot
+  food_entries: FoodEntry
+}
+
+export type SyncedTableName = keyof SyncedRecordMap
+export type SyncedRecord<T extends SyncedTableName> = SyncedRecordMap[T]
+export type AnySyncedRecord = SyncedRecordMap[SyncedTableName]
+export type RecordWrite = {
+  [T in SyncedTableName]: { table: T; record: SyncedRecordMap[T] }
+}[SyncedTableName]
+
 export interface OutboxItem {
   key: string
   table: SyncedTableName
   record_id: string
+  user_id: string
   operation: SyncOperation
-  payload: BaseRecord
+  payload: AnySyncedRecord
+  status: OutboxStatus
+  retry_count: number
+  last_error: string | null
+  next_retry_at: string | null
   created_at: string
+  updated_at: string
 }
 
 export interface SyncMeta {
   key: string
   value: string
 }
-
-export type SyncedTableName =
-  | 'profiles'
-  | 'user_settings'
-  | 'training_plans'
-  | 'training_days'
-  | 'exercises'
-  | 'workout_sessions'
-  | 'workout_sets'
-  | 'body_entries'
-  | 'meal_slots'
-  | 'food_entries'
-
-export type AnySyncedRecord =
-  | Profile
-  | UserSettings
-  | TrainingPlan
-  | TrainingDay
-  | Exercise
-  | WorkoutSession
-  | WorkoutSet
-  | BodyEntry
-  | MealSlot
-  | FoodEntry
 
 export const syncedTables: SyncedTableName[] = [
   'profiles',

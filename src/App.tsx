@@ -9,7 +9,7 @@ import { db, syncUser } from './lib/db'
 import { DEMO_USER_ID } from './lib/demo-constants'
 import { seedDemoData } from './lib/demo'
 import { isSupabaseConfigured, supabase } from './lib/supabase'
-import type { Profile, ThemeMode } from './types'
+import type { ThemeMode } from './types'
 
 type Tab = 'nutrition' | 'body' | 'training'
 

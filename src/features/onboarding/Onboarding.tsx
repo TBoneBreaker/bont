@@ -4,7 +4,7 @@ import { Button, Field, InfoNote, SelectField } from '../../components/ui'
 import { saveRecord } from '../../lib/db'
 import { localDateString } from '../../lib/date'
 import { preliminaryMaintenance } from '../../lib/maintenance'
-import type { Profile, Sex, UserSettings } from '../../types'
+import type { ActivityLevel, BodyFatCategory, Profile, Sex, UserSettings } from '../../types'
 import { createBase, newId } from '../../types'
 
 const activityOptions = [
@@ -40,8 +40,8 @@ export function Onboarding({ userId, onComplete }: { userId: string; onComplete:
   const [sex, setSex] = useState<Sex>('male')
   const [height, setHeight] = useState('180')
   const [weight, setWeight] = useState('80')
-  const [activity, setActivity] = useState('moderate')
-  const [bodyFat, setBodyFat] = useState('athletic')
+  const [activity, setActivity] = useState<ActivityLevel>('moderate')
+  const [bodyFat, setBodyFat] = useState<BodyFatCategory>('athletic')
 
   const canContinue = useMemo(() => {
     if (step === 0) return displayName.trim().length >= 2
@@ -138,7 +138,7 @@ export function Onboarding({ userId, onComplete }: { userId: string; onComplete:
             <p>Wähle eher konservativ. Das ist nur der Startwert – dein Gewichtsverlauf korrigiert ihn später.</p>
             <div className="choice-list">
               {activityOptions.map((option) => (
-                <button className="choice" key={option.id} aria-pressed={activity === option.id} onClick={() => setActivity(option.id)}>
+                <button className="choice" key={option.id} aria-pressed={activity === option.id} onClick={() => setActivity(option.id as ActivityLevel)}>
                   <div><strong>{option.title}</strong><span>{option.text}</span></div>
                   {activity === option.id && <Check size={19} />}
                 </button>
@@ -152,7 +152,7 @@ export function Onboarding({ userId, onComplete }: { userId: string; onComplete:
             <div><span className="eyebrow">Körperzusammensetzung</span><h1>Welche Kategorie passt am ehesten?</h1></div>
             <div className="choice-list">
               {bodyFatOptions[sex].map(([id, title, text]) => (
-                <button className="choice" key={id} aria-pressed={bodyFat === id} onClick={() => setBodyFat(id)}>
+                <button className="choice" key={id} aria-pressed={bodyFat === id} onClick={() => setBodyFat(id as BodyFatCategory)}>
                   <div><strong>{title}</strong><span>{text}</span></div>
                   {bodyFat === id && <Check size={19} />}
                 </button>

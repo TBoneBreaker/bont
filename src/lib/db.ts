@@ -2,6 +2,7 @@ import Dexie, { type Table } from 'dexie'
 import { supabase } from './supabase'
 import type {
   AnySyncedRecord,
+  BaseRecord,
   BodyEntry,
   Exercise,
   FoodEntry,
@@ -54,8 +55,8 @@ class BontDatabase extends Dexie {
 
 export const db = new BontDatabase()
 
-const getTable = (table: SyncedTableName): Table<AnySyncedRecord, string> =>
-  db.table(table) as Table<AnySyncedRecord, string>
+const getTable = (table: SyncedTableName): Table<import('../types').BaseRecord, string> =>
+  db.table(table) as Table<import('../types').BaseRecord, string>
 
 export async function saveRecord<T extends AnySyncedRecord>(
   table: SyncedTableName,
@@ -75,7 +76,13 @@ export async function saveRecord<T extends AnySyncedRecord>(
         record_id: next.id,
         operation: 'upsert',
         payload: next,
+        user_id: next.user_id,
+        status: 'pending',
+        retry_count: 0,
+        last_error: null,
+        next_retry_at: null,
         created_at: timestamp,
+        updated_at: timestamp,
       })
     }
   })
@@ -159,7 +166,7 @@ async function runSync(userId: string, full = false): Promise<SyncResult> {
         conflictTarget = 'user_id,entry_date'
       }
 
-      const { error } = await supabase.from(item.table).upsert(payload, { onConflict: conflictTarget })
+      const { error } = await supabase.from(item.table).upsert(payload as never, { onConflict: conflictTarget })
       if (error) throw error
       if (replacedLocalId) await db.body_entries.delete(replacedLocalId)
       const current = await db.outbox.get(item.key)
@@ -194,7 +201,7 @@ async function runSync(userId: string, full = false): Promise<SyncResult> {
         for (const row of data ?? []) {
           const key = `${tableName}:${row.id}`
           if (!pendingKeys.has(key)) {
-            await localTable.put(row as AnySyncedRecord)
+            await localTable.put(row as BaseRecord)
             pulled += 1
           }
           if (!newestTimestamp || row.updated_at > newestTimestamp) newestTimestamp = row.updated_at

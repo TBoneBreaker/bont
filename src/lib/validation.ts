@@ -1,0 +1,39 @@
+import { z } from 'zod'
+import type { ActivityLevel, BodyFatCategory, Sex } from '../types'
+
+export const sexSchema = z.enum(['male', 'female'])
+export const activityLevelSchema = z.enum(['low', 'light', 'moderate', 'high', 'athlete'])
+export const bodyFatCategorySchema = z.enum(['very_low', 'athletic', 'fit', 'average', 'high'])
+
+export const onboardingInputSchema = z.object({
+  displayName: z.string().trim().min(2).max(40),
+  birthDate: z.string().date(),
+  sex: sexSchema,
+  heightCm: z.number().finite().min(120).max(230),
+  weightKg: z.number().finite().min(35).max(300),
+  activityLevel: activityLevelSchema,
+  bodyFatCategory: bodyFatCategorySchema,
+})
+
+export const profileInputSchema = onboardingInputSchema
+
+export type OnboardingInput = z.infer<typeof onboardingInputSchema>
+
+export function parseActivityLevel(value: string): ActivityLevel {
+  return activityLevelSchema.parse(value)
+}
+
+export function parseBodyFatCategory(value: string): BodyFatCategory {
+  return bodyFatCategorySchema.parse(value)
+}
+
+export function parseSex(value: string): Sex {
+  return sexSchema.parse(value)
+}
+
+export function assertFiniteNonNegative(value: number, label: string) {
+  if (!Number.isFinite(value) || value < 0) {
+    throw new Error(`${label} muss eine endliche, nicht negative Zahl sein.`)
+  }
+  return value
+}
