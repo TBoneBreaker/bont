@@ -210,10 +210,12 @@ export function FoodSearchModal({
       fat_g: Number(fat || 0),
       micronutrients,
       food_source: selectedProduct?.source,
-      source_id: selectedProduct?.id,
+      source_id: selectedProduct?.sourceRecordId,
+      food_id: selectedProduct?.id ?? null,
       preparation_state: selectedProduct?.preparationState ?? 'unknown',
       portion_grams: portion?.grams ?? null,
       portion_label: portion?.label ?? null,
+      micronutrient_provenance: selectedProduct?.nutrientProvenance ?? {},
     }
     setFormError('')
     try {
@@ -347,8 +349,8 @@ export function FoodSearchModal({
                 })}
               </div>
               <p className="food-source-note">
-                Produkte und Marken von Open Food Facts. Ergänzende Analysewerte von USDA FoodData Central. Wähle für
-                die Mikronährstoffauswertung möglichst einen Eintrag mit grüner Datenangabe.
+                Ergebnisse stammen aus dem kuratierten Bont-Katalog. Die Anzeige bewahrt pro Nährstoff Quelle und
+                Ableitung; fehlende Werte werden nicht als Nullwerte ausgegeben.
               </p>
               <Button variant="ghost" full onClick={() => startManual()}>
                 Nicht dabei? Selbst eintragen
@@ -379,7 +381,7 @@ export function FoodSearchModal({
             <EmptyState
               icon={<Database size={24} />}
               title="Lebensmittel suchen"
-              text="Durchsuche Open Food Facts oder lege ein eigenes Lebensmittel an."
+              text="Durchsuche den kuratierten Lebensmittelkatalog oder lege ein eigenes Lebensmittel an."
               action={
                 <Button onClick={() => startManual('')}>
                   <Plus size={18} /> Eigenes Lebensmittel
@@ -636,8 +638,14 @@ function FoodEditor({
 
 function formatPreparationState(state: FoodSearchResult['preparationState']) {
   if (state === 'raw') return 'Roh'
-  if (state === 'dry') return 'Trocken'
+  if (state === 'dry' || state === 'dried') return 'Trocken'
   if (state === 'cooked') return 'Gekocht'
+  if (state === 'fried') return 'Gebraten'
+  if (state === 'steamed') return 'Gedämpft'
+  if (state === 'baked') return 'Gebacken'
+  if (state === 'frozen') return 'Tiefgekühlt'
+  if (state === 'drained') return 'Abgetropft'
+  if (state === 'uncooked') return 'Ungekocht'
   if (state === 'prepared') return 'Zubereitet'
   return 'Zustand nicht angegeben'
 }

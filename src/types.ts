@@ -5,8 +5,28 @@ export type ActivityLevel = 'low' | 'light' | 'moderate' | 'high' | 'athlete'
 export type BodyFatCategory = 'very_low' | 'athletic' | 'fit' | 'average' | 'high'
 export type SyncOperation = 'upsert'
 export type OutboxStatus = 'pending' | 'processing' | 'failed' | 'dead_letter'
-export type FoodSource = 'open_food_facts' | 'usda'
-export type FoodPreparationState = 'raw' | 'dry' | 'cooked' | 'prepared' | 'unknown'
+export type FoodSource = 'bls' | 'open_food_facts' | 'usda' | 'manual'
+export type FoodPreparationState =
+  | 'raw'
+  | 'cooked'
+  | 'fried'
+  | 'steamed'
+  | 'baked'
+  | 'dry'
+  | 'dried'
+  | 'frozen'
+  | 'drained'
+  | 'prepared'
+  | 'uncooked'
+  | 'unknown'
+
+export interface NutrientProvenanceSnapshot {
+  source: FoodSource
+  source_record_id: string
+  derivation: 'direct' | 'inherited_reference'
+  value_status: string
+  provenance: string | null
+}
 
 export interface BaseRecord {
   id: string
@@ -106,9 +126,11 @@ export interface FoodEntry extends BaseRecord {
   micronutrients: Record<string, number>
   food_source?: FoodSource
   source_id?: string
+  food_id?: string | null
   preparation_state?: FoodPreparationState
   portion_grams?: number | null
   portion_label?: string | null
+  micronutrient_provenance?: Record<string, NutrientProvenanceSnapshot>
 }
 
 export type SyncedRecordMap = {

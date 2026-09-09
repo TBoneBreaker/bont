@@ -1,0 +1,13 @@
+{
+  "FoundationFoods": [
+    {
+      "fdcId": 1001,
+      "description": "Bananas, raw",
+      "foodNutrients": [
+        { "nutrient": { "name": "Energy", "unitName": "kcal" }, "amount": 89 },
+        { "nutrient": { "name": "Protein", "unitName": "g" }, "amount": 1.1 },
+        { "nutrient": { "name": "Potassium, K", "unitName": "mg" }, "amount": 358 }
+      ]
+    }
+  ]
+}
