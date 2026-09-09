@@ -1,8 +1,7 @@
 import { useMemo, useState, type CSSProperties, type FormEvent } from 'react'
-import { useLiveQuery } from 'dexie-react-hooks'
 import { ChevronDown, ChevronRight, ChevronUp, Database, LoaderCircle, Pencil, Plus, ScanBarcode, Search, Trash2, Utensils } from 'lucide-react'
 import { Button, Card, EmptyState, Field, IconButton, InfoNote, Metric, Modal, SelectField } from '../../components/ui'
-import { db, saveRecord, softDeleteRecord } from '../../lib/db'
+import { useNutritionData } from './use-nutrition-data'
 import { localDateString } from '../../lib/date'
 import { searchFoods, type FoodPortion, type FoodSearchResult } from '../../lib/food-search'
 import { estimateMaintenance } from '../../lib/maintenance'
@@ -13,6 +12,7 @@ import { GoalSettings } from './GoalSettings'
 import { MealList } from './MealList'
 import { MicronutrientOverview } from './MicronutrientOverview'
 import { sumFood } from './nutrition-utils'
+import { addMeal, deleteFoodEntry, deleteMeal, renameMeal, saveFoodEntry, updateCalorieAdjustment, updateGoal as updateGoalCommand } from './commands'
 
 const today = localDateString
 
@@ -23,10 +23,7 @@ export function NutritionScreen({ userId, profile }: { userId: string; profile: 
   const [microInfo, setMicroInfo] = useState<NutrientReference | null>(null)
   const [showMicronutrients, setShowMicronutrients] = useState(false)
 
-  const settings = useLiveQuery(() => db.user_settings.where('user_id').equals(userId).first(), [userId])
-  const entries = useLiveQuery(async () => (await db.food_entries.where('user_id').equals(userId).toArray()).filter((entry) => !entry.deleted_at), [userId], [])
-  const bodyEntries = useLiveQuery(async () => (await db.body_entries.where('user_id').equals(userId).toArray()).filter((entry) => !entry.deleted_at), [userId], [])
-  const mealSlots = useLiveQuery(async () => (await db.meal_slots.where('user_id').equals(userId).toArray()).filter((meal) => !meal.deleted_at).sort((a, b) => a.order_index - b.order_index), [userId], [])
+  const { settings, entries, bodyEntries, mealSlots } = useNutritionData(userId)
   const todayEntries = useMemo(() => entries.filter((entry) => entry.entry_date === date), [date, entries])
   const maintenance = useMemo(() => estimateMaintenance(bodyEntries), [bodyEntries])
   const baseTarget = maintenance.maintenance ?? settings?.preliminary_maintenance ?? 0
@@ -37,20 +34,16 @@ export function NutritionScreen({ userId, profile }: { userId: string; profile: 
 
   async function updateGoal(mode: GoalMode) {
     if (!settings) return
-    await saveRecord('user_settings', {
-      ...settings,
-      goal_mode: mode,
-      calorie_adjustment: mode === 'maintain' ? 0 : settings.calorie_adjustment || (mode === 'cut' ? 300 : 200),
-    })
+    await updateGoalCommand(settings, mode)
   }
 
   async function updateAdjustment(value: number) {
     if (!settings) return
-    await saveRecord('user_settings', { ...settings, calorie_adjustment: Math.max(0, Math.min(1500, value)) })
+    await updateCalorieAdjustment(settings, value)
   }
 
   async function removeFood(entry: FoodEntry) {
-    await softDeleteRecord('food_entries', entry)
+    await deleteFoodEntry(userId, entry)
   }
 
   const micronutrientTotals = useMemo(() => nutrientReferences.reduce<Record<string, number>>((result, nutrient) => {
@@ -284,7 +277,7 @@ function FoodSearchModal({
       portion_grams: portion?.grams ?? null,
       portion_label: portion?.label ?? null,
     }
-    await saveRecord('food_entries', entry)
+    await saveFoodEntry(entry)
     setManual(false)
     setQuery('')
     setResults([])
@@ -423,17 +416,14 @@ function formatInputNumber(value: number) {
 
 function MealManager({ open, meals, userId, onClose }: { open: boolean; meals: MealSlot[]; userId: string; onClose: () => void }) {
   async function rename(meal: MealSlot, name: string) {
-    const normalized = name.trim()
-    if (!normalized || normalized === meal.name) return
-    await saveRecord('meal_slots', { ...meal, name: normalized })
+    await renameMeal(userId, meal, name)
   }
   async function add() {
-    if (meals.length >= 10) return
-    await saveRecord('meal_slots', { ...createBase(userId), name: `Mahlzeit ${meals.length + 1}`, order_index: meals.length })
+    await addMeal(userId, meals.length)
   }
   async function remove(meal: MealSlot) {
     if (meals.length <= 1) return
-    await softDeleteRecord('meal_slots', meal)
+    await deleteMeal(userId, meal)
   }
   return (
     <Modal open={open} title="Mahlzeiten anpassen" onClose={onClose}>

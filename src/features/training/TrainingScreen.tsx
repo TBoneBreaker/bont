@@ -1,5 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
-import { useLiveQuery } from 'dexie-react-hooks'
+import { useMemo, useState } from 'react'
 import {
   BarChart3,
   CalendarDays,
@@ -16,12 +15,16 @@ import {
   RotateCcw,
 } from 'lucide-react'
 import { Button, Card, EmptyState, IconButton, NumberStepper, ScreenHeader } from '../../components/ui'
-import { db, saveRecord } from '../../lib/db'
+import { saveRecord } from '../../lib/db'
 import { dateAtNoon, localDateString } from '../../lib/date'
-import type { Exercise, TrainingDay, TrainingPlan, WorkoutSession, WorkoutSet } from '../../types'
-import { createBase } from '../../types'
+import { getUserMessage } from '../../lib/errors'
+import { saveRecordsAtomically } from '../../lib/local-db/local-repository'
+import type { Exercise, TrainingDay, TrainingPlan, WorkoutSet } from '../../types'
 import { PlanBuilder } from './PlanBuilder'
 import { ExerciseProgressModal } from './ExerciseProgressModal'
+import { applyTrainingTemplate, finishWorkout as finishWorkoutCommand, startWorkout as startWorkoutCommand, updateWorkoutSet } from './commands'
+import { useTrainingData } from './use-training-data'
+import { useWorkoutData } from './use-workout-data'
 
 type TrainingView = 'overview' | 'templates'
 
@@ -34,39 +37,9 @@ export function TrainingScreen({ userId, displayName }: { userId: string; displa
   const [selectedDayId, setSelectedDayId] = useState<string | null>(null)
   const [workoutDate, setWorkoutDate] = useState(today())
   const [starting, setStarting] = useState(false)
+  const [error, setError] = useState('')
 
-  const plans = useLiveQuery(
-    () => db.training_plans.where('user_id').equals(userId).toArray(),
-    [userId],
-    [],
-  ).filter((plan) => !plan.deleted_at)
-  const activePlan = plans.find((plan) => plan.is_active && !plan.is_template)
-  const templates = plans.filter((plan) => plan.is_template)
-  const days = useLiveQuery(
-    async () => activePlan
-      ? (await db.training_days.where('plan_id').equals(activePlan.id).toArray()).filter((day) => !day.deleted_at).sort((a, b) => a.order_index - b.order_index)
-      : [],
-    [activePlan?.id],
-    [],
-  )
-  const exercises = useLiveQuery(
-    async () => (await db.exercises.where('user_id').equals(userId).toArray()).filter((exercise) => !exercise.deleted_at),
-    [userId],
-    [],
-  )
-  const activeSessions = useLiveQuery(
-    async () => (await db.workout_sessions.where('user_id').equals(userId).toArray()).filter((session) => !session.deleted_at && session.status === 'active'),
-    [userId],
-    [],
-  )
-
-  useEffect(() => {
-    if (!days.length) {
-      setSelectedDayId(null)
-      return
-    }
-    if (!selectedDayId || !days.some((day) => day.id === selectedDayId)) setSelectedDayId(days[0].id)
-  }, [days, selectedDayId])
+  const { activePlan, templates, days, exercises, activeSessions } = useTrainingData(userId)
 
   const selectedDay = days.find((day) => day.id === selectedDayId) ?? days[0]
   const selectedDayExercises = selectedDay
@@ -82,75 +55,26 @@ export function TrainingScreen({ userId, displayName }: { userId: string; displa
     }
     if (!activePlan) return
     setStarting(true)
+    setError('')
     try {
-      const session: WorkoutSession = {
-        ...createBase(userId),
-        training_plan_id: activePlan.id,
-        training_day_id: day.id,
-        started_at: dateAtNoon(date),
-        completed_at: null,
-        status: 'active',
-      }
-      await saveRecord('workout_sessions', session)
-
       const dayExercises = exercises.filter((exercise) => exercise.training_day_id === day.id).sort((a, b) => a.order_index - b.order_index)
-      const completedSessions = (await db.workout_sessions.where('training_day_id').equals(day.id).toArray())
-        .filter((item) => item.status === 'completed' && !item.deleted_at)
-        .sort((a, b) => b.started_at.localeCompare(a.started_at))
-      const previousSessionIds = new Set(completedSessions.map((item) => item.id))
-      const previousSets = (await db.workout_sets.where('user_id').equals(userId).toArray())
-        .filter((set) => previousSessionIds.has(set.session_id) && !set.deleted_at)
-
-      for (const exercise of dayExercises) {
-        for (let index = 0; index < exercise.target_sets; index += 1) {
-          const previous = completedSessions
-            .map((previousSession) => previousSets.find((set) => set.session_id === previousSession.id && set.exercise_id === exercise.id && set.set_number === index + 1))
-            .find(Boolean)
-          await saveRecord('workout_sets', {
-            ...createBase(userId),
-            session_id: session.id,
-            exercise_id: exercise.id,
-            set_number: index + 1,
-            weight_kg: previous?.weight_kg ?? null,
-            reps: previous?.reps ?? null,
-            is_completed: false,
-          })
-        }
-      }
+      const session = await startWorkoutCommand({ userId, plan: activePlan, day, exercises: dayExercises, workoutDate: date })
       setActiveSessionId(session.id)
+    } catch (startError) {
+      setError(getUserMessage(startError, 'Das Training konnte nicht gestartet werden.'))
     } finally {
       setStarting(false)
     }
   }
 
   async function applyTemplate(template: TrainingPlan) {
-    const oldActive = plans.filter((plan) => plan.is_active && !plan.is_template)
-    for (const plan of oldActive) await saveRecord('training_plans', { ...plan, is_active: false })
-    const plan: TrainingPlan = {
-      ...createBase(userId),
-      name: template.name,
-      split_size: template.split_size,
-      notes: template.notes,
-      is_active: true,
-      is_template: false,
+    setError('')
+    try {
+      await applyTrainingTemplate(userId, template)
+      setView('overview')
+    } catch (applyError) {
+      setError(getUserMessage(applyError, 'Die Vorlage konnte nicht übernommen werden.'))
     }
-    await saveRecord('training_plans', plan)
-    const templateDays = (await db.training_days.where('plan_id').equals(template.id).toArray()).filter((day) => !day.deleted_at).sort((a, b) => a.order_index - b.order_index)
-    const allExercises = (await db.exercises.where('user_id').equals(userId).toArray()).filter((exercise) => !exercise.deleted_at)
-    for (const templateDay of templateDays) {
-      const day: TrainingDay = { ...createBase(userId), plan_id: plan.id, name: templateDay.name, order_index: templateDay.order_index }
-      await saveRecord('training_days', day)
-      for (const templateExercise of allExercises.filter((exercise) => exercise.training_day_id === templateDay.id).sort((a, b) => a.order_index - b.order_index)) {
-        await saveRecord('exercises', {
-          ...createBase(userId),
-          training_day_id: day.id,
-          name: templateExercise.name,
-          target_sets: templateExercise.target_sets,
-          order_index: templateExercise.order_index,
-        })
-      }
-    }
-    setView('overview')
   }
 
   if (builder) {
@@ -201,6 +125,7 @@ export function TrainingScreen({ userId, displayName }: { userId: string; displa
     return (
       <main className="content">
         <div className="page-heading"><div><span className="eyebrow">Training</span><h1>Ein Plan, der zu dir passt.</h1><p>Starte übersichtlich und passe später jede Übung an, {displayName}.</p></div></div>
+        {error && <p className="form-error" role="alert">{error}</p>}
         <Card className="stack empty-feature-card">
           <div className="feature-icon"><ClipboardList size={23} /></div>
           <div><h2>Eigenen Plan erstellen</h2><p className="muted">Wähle deinen Split, benenne Trainingstage und lege Übungen, Reihenfolge und Sätze selbst fest.</p></div>
@@ -219,6 +144,7 @@ export function TrainingScreen({ userId, displayName }: { userId: string; displa
         <div><span className="eyebrow">Aktiver Trainingsplan</span><h1>{activePlan.name}</h1></div>
         <IconButton label="Trainingsplan bearbeiten" onClick={() => setBuilder({ plan: activePlan, template: false })}><Pencil size={19} /></IconButton>
       </div>
+      {error && <p className="form-error" role="alert">{error}</p>}
 
       {activeSessions.length > 0 && (
         <Card className="resume-card">
@@ -267,12 +193,7 @@ function WorkoutView({ userId, sessionId, onExit }: { userId: string; sessionId:
   const [selectedExerciseId, setSelectedExerciseId] = useState<string | null>(null)
   const [message, setMessage] = useState('')
   const [progressExercise, setProgressExercise] = useState<Exercise | null>(null)
-  const session = useLiveQuery(() => db.workout_sessions.get(sessionId), [sessionId])
-  const day = useLiveQuery(() => session ? db.training_days.get(session.training_day_id) : undefined, [session?.training_day_id])
-  const exercises = useLiveQuery(async () => session
-    ? (await db.exercises.where('training_day_id').equals(session.training_day_id).toArray()).filter((item) => !item.deleted_at).sort((a, b) => a.order_index - b.order_index)
-    : [], [session?.training_day_id], [])
-  const sets = useLiveQuery(async () => (await db.workout_sets.where('session_id').equals(sessionId).toArray()).filter((item) => !item.deleted_at).sort((a, b) => a.set_number - b.set_number), [sessionId], [])
+  const { session, day, exercises, sets } = useWorkoutData(userId, sessionId)
 
   const completeExerciseIds = useMemo(() => new Set(exercises.filter((exercise) => {
     const exerciseSets = sets.filter((set) => set.exercise_id === exercise.id)
@@ -283,17 +204,18 @@ function WorkoutView({ userId, sessionId, onExit }: { userId: string; sessionId:
     ...exercises.filter((exercise) => completeExerciseIds.has(exercise.id)),
   ], [exercises, completeExerciseIds])
 
-  useEffect(() => {
-    if (exercises.length && (!selectedExerciseId || !exercises.some((exercise) => exercise.id === selectedExerciseId))) {
-      setSelectedExerciseId(exercises.find((exercise) => !completeExerciseIds.has(exercise.id))?.id ?? exercises[0].id)
-    }
-  }, [selectedExerciseId, exercises, completeExerciseIds])
+  const resolvedSelectedExerciseId = selectedExerciseId && exercises.some((exercise) => exercise.id === selectedExerciseId)
+    ? selectedExerciseId
+    : exercises.find((exercise) => !completeExerciseIds.has(exercise.id))?.id ?? exercises[0]?.id
 
   const allDone = exercises.length > 0 && exercises.every((exercise) => completeExerciseIds.has(exercise.id))
 
   async function updateSet(set: WorkoutSet, key: 'weight_kg' | 'reps', raw: string) {
-    const value = raw === '' ? null : Number(raw)
-    await saveRecord('workout_sets', { ...set, [key]: value })
+    try {
+      await updateWorkoutSet(set, key, raw)
+    } catch (error) {
+      setMessage(getUserMessage(error, 'Der Satzwert konnte nicht gespeichert werden.'))
+    }
   }
 
   async function finishExercise(exercise: Exercise) {
@@ -304,14 +226,14 @@ function WorkoutView({ userId, sessionId, onExit }: { userId: string; sessionId:
       return
     }
     const next = exercises.find((item) => item.id !== exercise.id && !completeExerciseIds.has(item.id))
-    for (const set of exerciseSets) await saveRecord('workout_sets', { ...set, is_completed: true })
+    await saveRecordsAtomically(exerciseSets.map((set) => ({ table: 'workout_sets' as const, record: { ...set, is_completed: true } })))
     setMessage('')
     setSelectedExerciseId(next?.id ?? exercise.id)
   }
 
   async function reopenExercise(exercise: Exercise) {
     const exerciseSets = sets.filter((set) => set.exercise_id === exercise.id)
-    for (const set of exerciseSets) await saveRecord('workout_sets', { ...set, is_completed: false })
+    await saveRecordsAtomically(exerciseSets.map((set) => ({ table: 'workout_sets' as const, record: { ...set, is_completed: false } })))
     setSelectedExerciseId(exercise.id)
   }
 
@@ -322,9 +244,13 @@ function WorkoutView({ userId, sessionId, onExit }: { userId: string; sessionId:
 
   async function finishWorkout() {
     if (!session || !allDone) return
-    await saveRecord('workout_sessions', { ...session, status: 'completed', completed_at: new Date().toISOString() })
-    setMessage(`${day?.name ?? 'Training'} abgeschlossen`)
-    window.setTimeout(onExit, 700)
+    try {
+      await finishWorkoutCommand(session)
+      setMessage(`${day?.name ?? 'Training'} abgeschlossen`)
+      window.setTimeout(onExit, 700)
+    } catch (error) {
+      setMessage(getUserMessage(error, 'Das Training konnte nicht abgeschlossen werden.'))
+    }
   }
 
   if (!session || !day) return <div className="center-screen"><p className="muted">Training wird geladen …</p></div>
@@ -346,7 +272,7 @@ function WorkoutView({ userId, sessionId, onExit }: { userId: string; sessionId:
         <div className="workout-exercise-list">
           {orderedExercises.map((exercise) => {
             const complete = completeExerciseIds.has(exercise.id)
-            const selected = selectedExerciseId === exercise.id
+            const selected = resolvedSelectedExerciseId === exercise.id
             const exerciseSets = sets.filter((set) => set.exercise_id === exercise.id)
             return (
               <Card key={exercise.id} className={`workout-exercise ${complete ? 'workout-exercise--complete' : 'workout-exercise--pending'} ${selected ? 'workout-exercise--selected' : ''}`}>

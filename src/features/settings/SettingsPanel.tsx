@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Cloud, KeyRound, LogOut, Moon, RefreshCw, Sun, UserRound } from 'lucide-react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { Button, Card, Field, InfoNote, Modal, SelectField } from '../../components/ui'
-import { db, saveRecord, syncUser } from '../../lib/db'
-import { preliminaryMaintenance } from '../../lib/maintenance'
-import { supabase } from '../../lib/supabase'
+import { db, syncUser } from '../../lib/db'
+import { getUserMessage } from '../../lib/errors'
+import { authService } from '../auth/auth-service'
+import { saveProfile, saveTheme } from './commands'
 import type { ActivityLevel, BodyFatCategory, Profile, Sex, ThemeMode } from '../../types'
 
 export function SettingsPanel({
@@ -34,7 +35,7 @@ export function SettingsPanel({
   const [savingPassword, setSavingPassword] = useState(false)
 
   async function setTheme(theme: ThemeMode) {
-    if (settings) await saveRecord('user_settings', { ...settings, theme })
+    if (settings) await saveTheme(settings, theme)
   }
 
   async function sync() {
@@ -62,10 +63,10 @@ export function SettingsPanel({
       setLoggingOut(false)
       return
     }
-    const { error } = await supabase.auth.signOut()
+    const { error } = await authService.signOut()
     setLoggingOut(false)
     if (error) {
-      setStatus(error.message)
+      setStatus(getUserMessage(error, 'Die Abmeldung konnte nicht abgeschlossen werden.'))
       return
     }
     onSignedOut()
@@ -82,10 +83,10 @@ export function SettingsPanel({
       return
     }
     setSavingPassword(true)
-    const { error } = await supabase.auth.updateUser({ password })
+    const { error } = await authService.updatePassword(password)
     setSavingPassword(false)
     if (error) {
-      setStatus('Passwort konnte nicht gespeichert werden. Bitte versuche es später erneut.')
+      setStatus(getUserMessage(error, 'Passwort konnte nicht gespeichert werden. Bitte versuche es später erneut.'))
       return
     }
     setPassword('')
@@ -125,7 +126,7 @@ export function SettingsPanel({
         <Button variant={demo ? 'secondary' : 'danger'} full disabled={loggingOut} onClick={() => void logout()}><LogOut size={18} /> {demo ? 'Zur Anmeldung' : loggingOut ? 'Wird abgemeldet …' : 'Abmelden'}</Button>
         <p className="auth-note">{demo ? 'Änderungen in der Demo bleiben ausschließlich auf diesem Gerät.' : 'Bont speichert laufende Trainings und Änderungen zuerst lokal. Cloud-Daten werden pro Nutzer durch Zugriffsregeln getrennt.'}</p>
       </Modal>
-      <ProfileEditor open={open && editingProfile} profile={profile} onClose={() => setEditingProfile(false)} />
+      <ProfileEditor key={editingProfile ? 'profile-open' : 'profile-closed'} open={open && editingProfile} profile={profile} onClose={() => setEditingProfile(false)} />
     </>
   )
 }
@@ -139,36 +140,20 @@ function ProfileEditor({ open, profile, onClose }: { open: boolean; profile: Pro
   const [weight, setWeight] = useState(String(profile.initial_weight_kg))
   const [activity, setActivity] = useState<ActivityLevel>(profile.activity_level)
   const [bodyFat, setBodyFat] = useState<BodyFatCategory>(profile.body_fat_category)
-
-  useEffect(() => {
-    setName(profile.display_name)
-    setBirthDate(profile.birth_date)
-    setSex(profile.sex)
-    setHeight(String(profile.height_cm))
-    setWeight(String(profile.initial_weight_kg))
-    setActivity(profile.activity_level)
-    setBodyFat(profile.body_fat_category)
-  }, [profile])
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
 
   async function save() {
-    const nextProfile: Profile = {
-      ...profile,
-      display_name: name.trim(),
-      birth_date: birthDate,
-      sex,
-      height_cm: Number(height),
-      initial_weight_kg: Number(weight),
-      activity_level: activity,
-      body_fat_category: bodyFat,
+    setSaving(true)
+    setError('')
+    try {
+      await saveProfile(profile.user_id, profile, { displayName: name, birthDate, sex, heightCm: Number(height), weightKg: Number(weight), activityLevel: activity, bodyFatCategory: bodyFat }, settings)
+      onClose()
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : 'Die Profildaten konnten nicht gespeichert werden.')
+    } finally {
+      setSaving(false)
     }
-    await saveRecord('profiles', nextProfile)
-    if (settings) {
-      await saveRecord('user_settings', {
-        ...settings,
-        preliminary_maintenance: preliminaryMaintenance({ sex, birthDate, heightCm: Number(height), weightKg: Number(weight), activityLevel: activity }),
-      })
-    }
-    onClose()
   }
 
   return (
@@ -180,7 +165,8 @@ function ProfileEditor({ open, profile, onClose }: { open: boolean; profile: Pro
       <SelectField label="Alltagsaktivität" value={activity} onChange={(event) => setActivity(event.target.value as ActivityLevel)}><option value="low">Überwiegend sitzend</option><option value="light">Leicht aktiv</option><option value="moderate">Aktiv</option><option value="high">Sehr aktiv</option><option value="athlete">Extrem aktiv</option></SelectField>
       <SelectField label="Körperfett-Kategorie" value={bodyFat} onChange={(event) => setBodyFat(event.target.value as BodyFatCategory)}><option value="very_low">Sehr niedrig</option><option value="athletic">Athletisch</option><option value="fit">Fit</option><option value="average">Durchschnitt</option><option value="high">Erhöht</option></SelectField>
       <InfoNote>Änderungen aktualisieren nur die vorläufige Kalorienschätzung. Sobald genügend Verlaufsdaten vorhanden sind, hat die datenbasierte Schätzung Vorrang.</InfoNote>
-      <Button full disabled={!name.trim() || !birthDate || !height || !weight} onClick={() => void save()}>Änderungen speichern</Button>
+      {error && <p className="form-error" role="alert">{error}</p>}
+      <Button full disabled={saving || !name.trim() || !birthDate || !height || !weight} onClick={() => void save()}>{saving ? 'Wird gespeichert …' : 'Änderungen speichern'}</Button>
     </Modal>
   )
 }

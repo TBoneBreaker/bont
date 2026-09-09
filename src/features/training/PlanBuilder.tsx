@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { ChevronDown, ChevronUp, Dumbbell, Minus, Plus, Save, Trash2 } from 'lucide-react'
 import { Button, Card, Field, IconButton, ScreenHeader, SelectField, TextareaField } from '../../components/ui'
-import { db, saveRecord, softDeleteRecord } from '../../lib/db'
-import type { Exercise, TrainingDay, TrainingPlan } from '../../types'
-import { createBase, newId } from '../../types'
+import type { TrainingPlan } from '../../types'
+import { newId } from '../../types'
+import { saveTrainingPlan } from './commands'
+import { usePlanBuilderData } from './use-plan-builder-data'
 
 interface ExerciseDraft {
   id: string
@@ -22,55 +23,47 @@ const defaultDayName = (index: number, split: number) => {
   return `Training ${index + 1}`
 }
 
-export function PlanBuilder({
+interface PlanBuilderProps {
+  userId: string
+  existingPlan?: TrainingPlan
+  templateMode?: boolean
+  onCancel: () => void
+  onSaved: (plan: TrainingPlan) => void
+}
+
+export function PlanBuilder(props: PlanBuilderProps) {
+  const planData = usePlanBuilderData(props.userId, props.existingPlan?.id)
+  if (props.existingPlan && !planData) return <div className="center-screen"><p className="muted">Plan wird geladen …</p></div>
+  return <PlanBuilderEditor {...props} initialDays={planData ?? undefined} />
+}
+
+function PlanBuilderEditor({
   userId,
   existingPlan,
   templateMode = false,
   onCancel,
   onSaved,
+  initialDays,
 }: {
   userId: string
   existingPlan?: TrainingPlan
   templateMode?: boolean
   onCancel: () => void
   onSaved: (plan: TrainingPlan) => void
+  initialDays?: DayDraft[]
 }) {
   const [name, setName] = useState(existingPlan?.name ?? (templateMode ? 'Neue Vorlage' : 'Mein Trainingsplan'))
   const [notes, setNotes] = useState(existingPlan?.notes ?? '')
   const [split, setSplit] = useState(existingPlan?.split_size ?? 3)
-  const [days, setDays] = useState<DayDraft[]>(() =>
+  const [days, setDays] = useState<DayDraft[]>(() => initialDays ??
     Array.from({ length: existingPlan?.split_size ?? 3 }, (_, index) => ({
       id: newId(),
       name: defaultDayName(index, existingPlan?.split_size ?? 3),
       exercises: [],
     })),
   )
-  const [loading, setLoading] = useState(Boolean(existingPlan))
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
-
-  useEffect(() => {
-    if (!existingPlan) return
-    let active = true
-    async function load() {
-      const storedDays = (await db.training_days.where('plan_id').equals(existingPlan!.id).toArray())
-        .filter((day) => !day.deleted_at)
-        .sort((a, b) => a.order_index - b.order_index)
-      const storedExercises = (await db.exercises.where('user_id').equals(userId).toArray()).filter((exercise) => !exercise.deleted_at)
-      if (!active) return
-      setDays(storedDays.map((day) => ({
-        id: day.id,
-        name: day.name,
-        exercises: storedExercises
-          .filter((exercise) => exercise.training_day_id === day.id)
-          .sort((a, b) => a.order_index - b.order_index)
-          .map((exercise) => ({ id: exercise.id, name: exercise.name, targetSets: exercise.target_sets })),
-      })))
-      setLoading(false)
-    }
-    void load()
-    return () => { active = false }
-  }, [existingPlan, userId])
 
   const totalSets = useMemo(() => days.reduce((sum, day) => sum + day.exercises.reduce((daySum, exercise) => daySum + exercise.targetSets, 0), 0), [days])
   const valid = name.trim().length >= 2 && days.every((day) => day.name.trim() && day.exercises.length > 0 && day.exercises.every((exercise) => exercise.name.trim()))
@@ -127,61 +120,15 @@ export function PlanBuilder({
     }
     setSaving(true)
     setError('')
-    const base = existingPlan ?? createBase(userId)
-    const plan: TrainingPlan = {
-      ...base,
-      name: name.trim(),
-      split_size: split,
-      notes: notes.trim(),
-      is_active: !templateMode,
-      is_template: templateMode,
-      deleted_at: null,
+    try {
+      const plan = await saveTrainingPlan({ userId, existingPlan, templateMode, name, notes, split, days })
+      onSaved(plan)
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : 'Der Trainingsplan konnte nicht gespeichert werden.')
+    } finally {
+      setSaving(false)
     }
-
-    if (!templateMode) {
-      const otherPlans = (await db.training_plans.where('user_id').equals(userId).toArray())
-        .filter((item) => item.id !== plan.id && item.is_active && !item.deleted_at)
-      for (const item of otherPlans) await saveRecord('training_plans', { ...item, is_active: false })
-    }
-
-    await saveRecord('training_plans', plan)
-
-    const oldDays = existingPlan ? (await db.training_days.where('plan_id').equals(plan.id).toArray()).filter((item) => !item.deleted_at) : []
-    const oldExercises = existingPlan ? (await db.exercises.where('user_id').equals(userId).toArray()).filter((item) => oldDays.some((day) => day.id === item.training_day_id) && !item.deleted_at) : []
-    const retainedDayIds = new Set(days.map((day) => day.id))
-    const retainedExerciseIds = new Set(days.flatMap((day) => day.exercises.map((exercise) => exercise.id)))
-
-    for (const old of oldExercises.filter((exercise) => !retainedExerciseIds.has(exercise.id))) await softDeleteRecord('exercises', old)
-    for (const old of oldDays.filter((day) => !retainedDayIds.has(day.id))) await softDeleteRecord('training_days', old)
-
-    for (const [dayIndex, draftDay] of days.entries()) {
-      const oldDay = oldDays.find((item) => item.id === draftDay.id)
-      const day: TrainingDay = {
-        ...(oldDay ?? createBase(userId, draftDay.id)),
-        plan_id: plan.id,
-        name: draftDay.name.trim(),
-        order_index: dayIndex,
-        deleted_at: null,
-      }
-      await saveRecord('training_days', day)
-      for (const [exerciseIndex, draftExercise] of draftDay.exercises.entries()) {
-        const oldExercise = oldExercises.find((item) => item.id === draftExercise.id)
-        const exercise: Exercise = {
-          ...(oldExercise ?? createBase(userId, draftExercise.id)),
-          training_day_id: day.id,
-          name: draftExercise.name.trim(),
-          target_sets: draftExercise.targetSets,
-          order_index: exerciseIndex,
-          deleted_at: null,
-        }
-        await saveRecord('exercises', exercise)
-      }
-    }
-    setSaving(false)
-    onSaved(plan)
   }
-
-  if (loading) return <div className="center-screen"><p className="muted">Plan wird geladen …</p></div>
 
   return (
     <div className="subview">

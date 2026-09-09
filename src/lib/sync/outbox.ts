@@ -33,7 +33,9 @@ export async function listDueOutbox(userId: string, now = new Date()) {
 
 export async function listPendingKeys(userId: string) {
   const items = await db.outbox.where('user_id').equals(userId).toArray()
-  return new Set(items.filter((item) => item.status !== 'dead_letter').map((item) => item.key))
+  // A dead-letter row is intentionally still protected from pull overwrite;
+  // it needs explicit user resolution before the cloud can replace its local data.
+  return new Set(items.map((item) => item.key))
 }
 
 export async function countOutbox(userId: string) {

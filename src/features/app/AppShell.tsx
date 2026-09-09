@@ -3,9 +3,7 @@ import { Settings } from 'lucide-react'
 import { IconButton, LoadingScreen } from '../../components/ui'
 import { Navigation, type Tab } from './Navigation'
 import { useOnlineStatus } from './use-online-status'
-import { db } from '../../lib/db'
-import { countOutbox } from '../../lib/sync/outbox'
-import { useLiveQuery } from 'dexie-react-hooks'
+import { useAppState } from './use-app-state'
 import type { Profile, ThemeMode } from '../../types'
 
 const BodyScreen = lazy(() => import('../body/BodyScreen').then((module) => ({ default: module.BodyScreen })))
@@ -17,8 +15,7 @@ export function AppShell({ userId, profile, demoMode }: { userId: string; profil
   const [tab, setTab] = useState<Tab>('training')
   const [settingsOpen, setSettingsOpen] = useState(false)
   const online = useOnlineStatus()
-  const settings = useLiveQuery(() => db.user_settings.where('user_id').equals(userId).first(), [userId])
-  const outbox = useLiveQuery(() => countOutbox(userId), [userId], { pending: 0, failed: 0, deadLetter: 0 })
+  const { settings, sync: outbox } = useAppState(userId)
   const resolvedTheme = useResolvedTheme(settings?.theme ?? 'system')
   const pending = outbox.pending + outbox.failed + outbox.deadLetter
 

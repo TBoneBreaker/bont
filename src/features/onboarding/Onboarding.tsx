@@ -1,11 +1,10 @@
 import { useMemo, useState } from 'react'
 import { ArrowLeft, ArrowRight, Check } from 'lucide-react'
 import { Button, Field, InfoNote, SelectField } from '../../components/ui'
-import { saveRecord } from '../../lib/db'
 import { localDateString } from '../../lib/date'
-import { preliminaryMaintenance } from '../../lib/maintenance'
-import type { ActivityLevel, BodyFatCategory, Profile, Sex, UserSettings } from '../../types'
-import { createBase, newId } from '../../types'
+import { getUserMessage } from '../../lib/errors'
+import type { ActivityLevel, BodyFatCategory, Profile, Sex } from '../../types'
+import { completeOnboarding } from './commands'
 
 const activityOptions = [
   { id: 'low', title: 'Überwiegend sitzend', text: 'Wenig Bewegung, kein regelmäßiger Sport' },
@@ -35,6 +34,7 @@ const bodyFatOptions = {
 export function Onboarding({ userId, onComplete }: { userId: string; onComplete: (profile: Profile) => void }) {
   const [step, setStep] = useState(0)
   const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
   const [displayName, setDisplayName] = useState('')
   const [birthDate, setBirthDate] = useState('2000-01-01')
   const [sex, setSex] = useState<Sex>('male')
@@ -52,50 +52,23 @@ export function Onboarding({ userId, onComplete }: { userId: string; onComplete:
 
   async function finish() {
     setSaving(true)
-    const estimate = preliminaryMaintenance({
-      sex,
-      birthDate,
-      heightCm: Number(height),
-      weightKg: Number(weight),
-      activityLevel: activity,
-    })
-    const profile: Profile = {
-      ...createBase(userId),
-      display_name: displayName.trim(),
-      birth_date: birthDate,
-      sex,
-      height_cm: Number(height),
-      initial_weight_kg: Number(weight),
-      activity_level: activity,
-      body_fat_category: bodyFat,
-      onboarding_completed: true,
-    }
-    const settings: UserSettings = {
-      ...createBase(userId),
-      theme: 'system',
-      goal_mode: 'maintain',
-      calorie_adjustment: 0,
-      preliminary_maintenance: estimate,
-    }
-    await saveRecord('profiles', profile)
-    await saveRecord('user_settings', settings)
-    for (const [index, name] of ['Frühstück', 'Mittagessen', 'Abendessen', 'Snack'].entries()) {
-      await saveRecord('meal_slots', {
-        ...createBase(userId, newId()),
-        name,
-        order_index: index,
+    setError('')
+    try {
+      const profile = await completeOnboarding(userId, {
+        displayName,
+        birthDate,
+        sex,
+        heightCm: Number(height),
+        weightKg: Number(weight),
+        activityLevel: activity,
+        bodyFatCategory: bodyFat,
       })
+      onComplete(profile)
+    } catch (saveError) {
+      setError(getUserMessage(saveError, 'Deine Einrichtung konnte nicht gespeichert werden.'))
+    } finally {
+      setSaving(false)
     }
-    const today = localDateString()
-    await saveRecord('body_entries', {
-      ...createBase(userId),
-      entry_date: today,
-      weight_kg: Number(weight),
-      calories: null,
-      steps: null,
-    })
-    setSaving(false)
-    onComplete(profile)
   }
 
   return (
@@ -163,6 +136,7 @@ export function Onboarding({ userId, onComplete }: { userId: string; onComplete:
         )}
       </section>
 
+      {error && <p className="form-error" role="alert">{error}</p>}
       <div className="row">
         {step > 0 && <Button variant="secondary" onClick={() => setStep((value) => value - 1)} aria-label="Zurück"><ArrowLeft size={18} /></Button>}
         <Button full disabled={!canContinue || saving} onClick={() => step < 3 ? setStep((value) => value + 1) : void finish()}>

@@ -1,16 +1,10 @@
-import { useLiveQuery } from 'dexie-react-hooks'
 import { BarChart3 } from 'lucide-react'
 import { EmptyState, Modal } from '../../components/ui'
-import { db } from '../../lib/db'
 import type { Exercise, WorkoutSession, WorkoutSet } from '../../types'
+import { useExerciseProgressData } from './use-workout-data'
 
 export function ExerciseProgressModal({ open, exercise, userId, onClose }: { open: boolean; exercise: Exercise | null; userId: string; onClose: () => void }) {
-  const sessions = useLiveQuery(async () => (await db.workout_sessions.where('user_id').equals(userId).toArray()).filter((item) => item.status === 'completed' && !item.deleted_at).sort((a, b) => a.started_at.localeCompare(b.started_at)), [userId], [])
-  const allSets = useLiveQuery(async () => exercise ? (await db.workout_sets.where('exercise_id').equals(exercise.id).toArray()).filter((item) => !item.deleted_at && item.is_completed) : [], [exercise?.id], [])
-  const history = sessions.map((session) => ({
-    session,
-    sets: allSets.filter((set) => set.session_id === session.id && set.weight_kg !== null),
-  })).filter((item) => item.sets.length > 0).slice(-10)
+  const history = useExerciseProgressData(userId, exercise?.id)
 
   return (
     <Modal open={open} title={exercise?.name ?? 'Fortschritt'} onClose={onClose}>

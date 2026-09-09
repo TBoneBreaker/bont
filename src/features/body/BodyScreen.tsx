@@ -1,32 +1,25 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { useLiveQuery } from 'dexie-react-hooks'
 import { CalendarDays, Check, Footprints, Gauge, Plus, Scale, Sparkles, Utensils } from 'lucide-react'
 import { Button, Card, Field, Metric, Modal, NumberStepper, ProgressBar } from '../../components/ui'
-import { db, saveRecord } from '../../lib/db'
+import { useBodyData } from './use-body-data'
+import { getUserMessage } from '../../lib/errors'
 import { localDateString } from '../../lib/date'
 import { estimateMaintenance, weeklyAverages } from '../../lib/maintenance'
 import type { BodyEntry } from '../../types'
-import { createBase } from '../../types'
-
-type BodyMetric = 'weight_kg' | 'calories' | 'steps'
+import { saveBodyMetric, type BodyMetric } from './commands'
 
 const today = localDateString
 
 export function BodyScreen({ userId }: { userId: string }) {
-  const entries = useLiveQuery(
-    async () => (await db.body_entries.where('user_id').equals(userId).toArray())
-      .filter((entry) => !entry.deleted_at)
-      .sort((a, b) => a.entry_date.localeCompare(b.entry_date)),
-    [userId],
-    [],
-  )
-  const settings = useLiveQuery(() => db.user_settings.where('user_id').equals(userId).first(), [userId])
+  const { entries, settings } = useBodyData(userId)
   const [entryOpen, setEntryOpen] = useState(false)
   const [entryDate, setEntryDate] = useState(today())
   const [weight, setWeight] = useState('')
   const [calories, setCalories] = useState('')
   const [steps, setSteps] = useState('')
   const [savedMetric, setSavedMetric] = useState<BodyMetric | null>(null)
+  const [metricError, setMetricError] = useState('')
+  const [savingMetric, setSavingMetric] = useState<BodyMetric | null>(null)
 
   const existing = entries.find((entry) => entry.entry_date === entryDate)
 
@@ -71,19 +64,32 @@ export function BodyScreen({ userId }: { userId: string }) {
     if ((metric === 'weight_kg' && (value < 35 || value > 300)) ||
       (metric === 'calories' && (value < 0 || value > 10_000)) ||
       (metric === 'steps' && (value < 0 || value > 100_000))) return
-    const latest = (await db.body_entries.where('entry_date').equals(entryDate).toArray())
-      .find((entry) => entry.user_id === userId && !entry.deleted_at)
-    const record: BodyEntry = {
-      ...(latest ?? createBase(userId)),
-      entry_date: entryDate,
-      weight_kg: metric === 'weight_kg' ? value : latest?.weight_kg ?? null,
-      calories: metric === 'calories' ? value : latest?.calories ?? null,
-      steps: metric === 'steps' ? value : latest?.steps ?? null,
-      deleted_at: null,
+    setSavingMetric(metric)
+    setMetricError('')
+    try {
+      await saveBodyMetric({ userId, entryDate, metric, value })
+      setSavedMetric(metric)
+      window.setTimeout(() => setSavedMetric((current) => current === metric ? null : current), 1500)
+    } catch (error) {
+      setMetricError(getUserMessage(error, 'Der Körperwert konnte nicht gespeichert werden.'))
+    } finally {
+      setSavingMetric(null)
     }
-    await saveRecord('body_entries', record)
-    setSavedMetric(metric)
-    window.setTimeout(() => setSavedMetric((current) => current === metric ? null : current), 1500)
+  }
+
+  async function clearMetric(metric: BodyMetric) {
+    setSavingMetric(metric)
+    setMetricError('')
+    try {
+      await saveBodyMetric({ userId, entryDate, metric, value: null })
+      if (metric === 'weight_kg') setWeight('')
+      if (metric === 'calories') setCalories('')
+      if (metric === 'steps') setSteps('')
+    } catch (error) {
+      setMetricError(getUserMessage(error, 'Der Körperwert konnte nicht gelöscht werden.'))
+    } finally {
+      setSavingMetric(null)
+    }
   }
 
   return (
@@ -164,20 +170,24 @@ export function BodyScreen({ userId }: { userId: string }) {
         <section className="metric-entry metric-entry--violet">
           <div className="metric-entry__title"><Scale size={19} /><div><strong>Gewicht</strong><span>{existing?.weight_kg !== null && existing?.weight_kg !== undefined ? 'Für dieses Datum gespeichert' : 'Am besten morgens nüchtern'}</span></div></div>
           <NumberStepper label="Kilogramm" value={weight} onChange={setWeight} step={0.1} min={35} max={300} unit="kg" />
-          <Button variant="secondary" full disabled={!weight} onClick={() => void saveMetric('weight_kg')}>{savedMetric === 'weight_kg' ? <><Check size={18} /> Gespeichert</> : 'Gewicht speichern'}</Button>
+          <Button variant="secondary" full disabled={!weight || Boolean(savingMetric)} onClick={() => void saveMetric('weight_kg')}>{savedMetric === 'weight_kg' ? <><Check size={18} /> Gespeichert</> : 'Gewicht speichern'}</Button>
+          <Button variant="ghost" full disabled={!existing?.weight_kg || Boolean(savingMetric)} onClick={() => void clearMetric('weight_kg')}>Gewicht löschen</Button>
         </section>
 
         <section className="metric-entry metric-entry--orange">
           <div className="metric-entry__title"><Utensils size={19} /><div><strong>Kalorien</strong><span>{existing?.calories !== null && existing?.calories !== undefined ? 'Für dieses Datum gespeichert' : 'Kannst du abends ergänzen'}</span></div></div>
           <Field label="Kilokalorien" type="number" inputMode="numeric" min="0" max="10000" value={calories} onChange={(event) => setCalories(event.target.value)} placeholder="2500" />
-          <Button variant="secondary" full disabled={calories === ''} onClick={() => void saveMetric('calories')}>{savedMetric === 'calories' ? <><Check size={18} /> Gespeichert</> : 'Kalorien speichern'}</Button>
+          <Button variant="secondary" full disabled={calories === '' || Boolean(savingMetric)} onClick={() => void saveMetric('calories')}>{savedMetric === 'calories' ? <><Check size={18} /> Gespeichert</> : 'Kalorien speichern'}</Button>
+          <Button variant="ghost" full disabled={existing?.calories === null || existing?.calories === undefined || Boolean(savingMetric)} onClick={() => void clearMetric('calories')}>Kalorien löschen</Button>
         </section>
 
         <section className="metric-entry metric-entry--cyan">
           <div className="metric-entry__title"><Footprints size={19} /><div><strong>Schritte</strong><span>{existing?.steps !== null && existing?.steps !== undefined ? 'Für dieses Datum gespeichert' : 'Jederzeit nachtragen'}</span></div></div>
           <Field label="Anzahl Schritte" type="number" inputMode="numeric" min="0" max="100000" value={steps} onChange={(event) => setSteps(event.target.value)} placeholder="10000" />
-          <Button variant="secondary" full disabled={steps === ''} onClick={() => void saveMetric('steps')}>{savedMetric === 'steps' ? <><Check size={18} /> Gespeichert</> : 'Schritte speichern'}</Button>
+          <Button variant="secondary" full disabled={steps === '' || Boolean(savingMetric)} onClick={() => void saveMetric('steps')}>{savedMetric === 'steps' ? <><Check size={18} /> Gespeichert</> : 'Schritte speichern'}</Button>
+          <Button variant="ghost" full disabled={existing?.steps === null || existing?.steps === undefined || Boolean(savingMetric)} onClick={() => void clearMetric('steps')}>Schritte löschen</Button>
         </section>
+        {metricError && <p className="form-error" role="alert">{metricError}</p>}
       </Modal>
     </main>
   )
@@ -220,11 +230,6 @@ function MetricChart({
   const pointerStart = useRef<number | null>(null)
 
   useEffect(() => {
-    if (values.length === 0) return
-    setPage((current) => Math.min(current, pageCount - 1))
-  }, [pageCount, values.length])
-
-  useEffect(() => {
     try {
       if (typeof sessionStorage !== 'undefined') sessionStorage.setItem(storageKey, String(page))
     } catch {
@@ -232,7 +237,8 @@ function MetricChart({
     }
   }, [page, storageKey])
 
-  const end = Math.max(0, values.length - page * pageSize)
+  const currentPage = Math.min(page, pageCount - 1)
+  const end = Math.max(0, values.length - currentPage * pageSize)
   const start = Math.max(0, end - pageSize)
   const visibleValues = values.slice(start, end)
   const latest = visibleValues.at(-1)
@@ -263,7 +269,7 @@ function MetricChart({
     const distance = clientX - pointerStart.current
     pointerStart.current = null
     if (Math.abs(distance) < 42) return
-    changePage(distance > 0 ? page + 1 : page - 1)
+    changePage(distance > 0 ? currentPage + 1 : currentPage - 1)
   }
 
   return (
@@ -271,7 +277,7 @@ function MetricChart({
       <div className="metric-chart__head">
         <span className="metric-chart__icon">{icon}</span>
         <div><span>{label}</span><strong>{latest ? format(latest.value) : 'Noch kein Wert'}</strong></div>
-        {values.length > pageSize && <span className="metric-chart__range">{page === 0 ? 'Neueste 7' : `${start + 1}–${end} von ${values.length}`}</span>}
+        {values.length > pageSize && <span className="metric-chart__range">{currentPage === 0 ? 'Neueste 7' : `${start + 1}–${end} von ${values.length}`}</span>}
       </div>
       <div
         className="metric-chart__plot"
