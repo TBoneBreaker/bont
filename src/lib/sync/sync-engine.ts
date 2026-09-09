@@ -3,7 +3,15 @@ import { getUserMessage, logError } from '../errors'
 import { putRemoteRecord } from '../local-db/local-repository'
 import { db, getSyncedTable } from '../local-db/schema'
 import { cursorFromRows, decodeCursor, encodeCursor, mergeBodyEntries, remoteWins } from './conflict-policy'
-import { acknowledge, countOutbox, listDueOutbox, listPendingKeys, markFailed, markProcessing, recoverProcessing } from './outbox'
+import {
+  acknowledge,
+  countOutbox,
+  listDueOutbox,
+  listPendingKeys,
+  markFailed,
+  markProcessing,
+  recoverProcessing,
+} from './outbox'
 import { publishSyncResult, publishSyncStatus, registerSyncRunner } from './sync-status'
 import { fetchSyncedPage, findRemoteBodyEntry, upsertSyncedRecord } from '../supabase-data'
 
@@ -79,7 +87,13 @@ async function pullTable(userId: string, table: SyncedTableName, full: boolean, 
 async function runSync(userId: string, full: boolean): Promise<SyncResult> {
   if (typeof navigator !== 'undefined' && !navigator.onLine) {
     const counts = await countOutbox(userId)
-    const result = { pushed: 0, pulled: 0, pending: counts.pending + counts.failed + counts.deadLetter, failed: counts.failed, deadLetter: counts.deadLetter }
+    const result = {
+      pushed: 0,
+      pulled: 0,
+      pending: counts.pending + counts.failed + counts.deadLetter,
+      failed: counts.failed,
+      deadLetter: counts.deadLetter,
+    }
     publishSyncStatus(userId, { state: 'offline', ...counts, pending: result.pending })
     return result
   }
@@ -91,7 +105,7 @@ async function runSync(userId: string, full: boolean): Promise<SyncResult> {
   let firstError: unknown = null
 
   for (const item of await listDueOutbox(userId)) {
-    if (!await markProcessing(item)) continue
+    if (!(await markProcessing(item))) continue
     try {
       await pushItem(userId, item)
       pushed += 1
@@ -120,14 +134,18 @@ async function runSync(userId: string, full: boolean): Promise<SyncResult> {
     pending: counts.pending + counts.failed + counts.deadLetter,
     failed: counts.failed,
     deadLetter: counts.deadLetter,
-    ...(firstError ? { error: getUserMessage(firstError, 'Die Synchronisierung konnte nicht vollständig abgeschlossen werden.') } : {}),
+    ...(firstError
+      ? { error: getUserMessage(firstError, 'Die Synchronisierung konnte nicht vollständig abgeschlossen werden.') }
+      : {}),
   }
   publishSyncResult(userId, result)
   return result
 }
 
 export function syncUser(userId: string, options: { full?: boolean } = {}) {
-  const previous = syncChains.get(userId) ?? Promise.resolve<SyncResult>({ pushed: 0, pulled: 0, pending: 0, failed: 0, deadLetter: 0 })
+  const previous =
+    syncChains.get(userId) ??
+    Promise.resolve<SyncResult>({ pushed: 0, pulled: 0, pending: 0, failed: 0, deadLetter: 0 })
   const next = previous.catch(() => undefined).then(() => runSync(userId, options.full ?? false))
   syncChains.set(userId, next)
   return next.finally(() => {
@@ -135,4 +153,6 @@ export function syncUser(userId: string, options: { full?: boolean } = {}) {
   })
 }
 
-registerSyncRunner((userId) => { void syncUser(userId) })
+registerSyncRunner((userId) => {
+  void syncUser(userId)
+})

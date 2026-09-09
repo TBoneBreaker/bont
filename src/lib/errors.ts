@@ -8,7 +8,10 @@ export class UserFacingError extends Error {
   }
 }
 
-export function getUserMessage(error: unknown, fallback = 'Das hat leider nicht funktioniert. Bitte versuche es erneut.') {
+export function getUserMessage(
+  error: unknown,
+  fallback = 'Das hat leider nicht funktioniert. Bitte versuche es erneut.',
+) {
   if (error instanceof UserFacingError) return error.userMessage
   if (error instanceof Error && /network|fetch|offline|failed to fetch/i.test(error.message)) {
     return 'Die Verbindung ist gerade nicht verfügbar. Deine lokalen Änderungen bleiben erhalten.'

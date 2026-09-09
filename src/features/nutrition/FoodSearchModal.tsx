@@ -1,5 +1,15 @@
 import { useMemo, useState, type FormEvent } from 'react'
-import { ChevronDown, ChevronRight, ChevronUp, Database, LoaderCircle, Plus, ScanBarcode, Search, Utensils } from 'lucide-react'
+import {
+  ChevronDown,
+  ChevronRight,
+  ChevronUp,
+  Database,
+  LoaderCircle,
+  Plus,
+  ScanBarcode,
+  Search,
+  Utensils,
+} from 'lucide-react'
 import { Button, EmptyState, Field, InfoNote, Modal, SelectField } from '../../components/ui'
 import { getUserMessage } from '../../lib/errors'
 import { searchFoods, type FoodPortion, type FoodSearchResult } from '../../lib/food-search'
@@ -8,7 +18,14 @@ import { createBase } from '../../types'
 import { nutrientReferences } from '../../lib/nutrients'
 import { saveFoodEntry } from './commands'
 
-export function FoodSearchModal({ open, meal, userId, date, previousEntries, onClose }: {
+export function FoodSearchModal({
+  open,
+  meal,
+  userId,
+  date,
+  previousEntries,
+  onClose,
+}: {
   open: boolean
   meal: MealSlot | null
   userId: string
@@ -36,9 +53,20 @@ export function FoodSearchModal({ open, meal, userId, date, previousEntries, onC
   const [portion, setPortion] = useState<FoodPortion | null>(null)
   const [showMicroEditor, setShowMicroEditor] = useState(false)
 
-  const recent = useMemo(() => Array.from(new Map(previousEntries.slice().reverse().map((entry) => [entry.name.toLowerCase(), entry])).values())
-    .filter((entry) => !query || entry.name.toLowerCase().includes(query.toLowerCase()))
-    .slice(0, 5), [previousEntries, query])
+  const recent = useMemo(
+    () =>
+      Array.from(
+        new Map(
+          previousEntries
+            .slice()
+            .reverse()
+            .map((entry) => [entry.name.toLowerCase(), entry]),
+        ).values(),
+      )
+        .filter((entry) => !query || entry.name.toLowerCase().includes(query.toLowerCase()))
+        .slice(0, 5),
+    [previousEntries, query],
+  )
 
   function startManual(prefill = query) {
     setFormError('')
@@ -68,9 +96,16 @@ export function FoodSearchModal({ open, meal, userId, date, previousEntries, onC
     setCarbs(String(entry.carbs_g))
     setFat(String(entry.fat_g))
     setMicronutrients(entry.micronutrients)
-    setPortion(entry.portion_grams && entry.unit === 'piece'
-      ? { label: entry.portion_label || `${entry.amount} Stück`, amount: entry.amount, unit: 'piece', grams: entry.portion_grams }
-      : null)
+    setPortion(
+      entry.portion_grams && entry.unit === 'piece'
+        ? {
+            label: entry.portion_label || `${entry.amount} Stück`,
+            amount: entry.amount,
+            unit: 'piece',
+            grams: entry.portion_grams,
+          }
+        : null,
+    )
     setShowMicroEditor(false)
     setSelectedProduct(null)
     setManual(true)
@@ -88,7 +123,12 @@ export function FoodSearchModal({ open, meal, userId, date, previousEntries, onC
     setManual(true)
   }
 
-  function applyProductAmount(product: FoodSearchResult, rawAmount: string, amountUnit = unit, activePortion = portion) {
+  function applyProductAmount(
+    product: FoodSearchResult,
+    rawAmount: string,
+    amountUnit = unit,
+    activePortion = portion,
+  ) {
     setAmount(rawAmount)
     const numericAmount = Number(rawAmount)
     const baseAmount = amountUnit === 'piece' ? numericAmount * (activePortion?.grams ?? 0) : numericAmount
@@ -97,7 +137,9 @@ export function FoodSearchModal({ open, meal, userId, date, previousEntries, onC
     setProtein(formatInputNumber(product.proteinPer100 * factor))
     setCarbs(formatInputNumber(product.carbsPer100 * factor))
     setFat(formatInputNumber(product.fatPer100 * factor))
-    setMicronutrients(Object.fromEntries(Object.entries(product.micronutrientsPer100).map(([key, value]) => [key, value * factor])))
+    setMicronutrients(
+      Object.fromEntries(Object.entries(product.micronutrientsPer100).map(([key, value]) => [key, value * factor])),
+    )
   }
 
   function selectPortion(value: string) {
@@ -147,7 +189,13 @@ export function FoodSearchModal({ open, meal, userId, date, previousEntries, onC
     if (!meal || !name.trim() || !calories) return
     const numericAmount = Number(amount)
     const numericCalories = Number(calories)
-    if (!Number.isFinite(numericAmount) || numericAmount <= 0 || !Number.isFinite(numericCalories) || numericCalories < 0) return
+    if (
+      !Number.isFinite(numericAmount) ||
+      numericAmount <= 0 ||
+      !Number.isFinite(numericCalories) ||
+      numericCalories < 0
+    )
+      return
     const entry: FoodEntry = {
       ...createBase(userId),
       meal_slot_id: meal.id,
@@ -216,42 +264,129 @@ export function FoodSearchModal({ open, meal, userId, date, previousEntries, onC
         <>
           <form className="search-field" onSubmit={(event) => void submitSearch(event)}>
             <Search size={19} />
-            <input autoFocus placeholder="z. B. Skyr, Haferflocken …" value={query} onChange={(event) => { setQuery(event.target.value); setSearchError(''); setSearchedQuery(''); setResults([]) }} />
-            <button className="search-submit" type="submit" disabled={query.trim().length < 2 || searching} aria-label="Lebensmittel suchen">{searching ? <LoaderCircle className="spin" size={18} /> : <ChevronRight size={19} />}</button>
+            <input
+              autoFocus
+              placeholder="z. B. Skyr, Haferflocken …"
+              value={query}
+              onChange={(event) => {
+                setQuery(event.target.value)
+                setSearchError('')
+                setSearchedQuery('')
+                setResults([])
+              }}
+            />
+            <button
+              className="search-submit"
+              type="submit"
+              disabled={query.trim().length < 2 || searching}
+              aria-label="Lebensmittel suchen"
+            >
+              {searching ? <LoaderCircle className="spin" size={18} /> : <ChevronRight size={19} />}
+            </button>
           </form>
-          <Button variant="secondary" full disabled><ScanBarcode size={19} /> Barcode-Scanner folgt in der Handy-App</Button>
+          <Button variant="secondary" full disabled>
+            <ScanBarcode size={19} /> Barcode-Scanner folgt in der Handy-App
+          </Button>
           {!searchedQuery && recent.length > 0 && (
-            <div className="stack stack--tight"><span className="eyebrow">Zuletzt verwendet</span>{recent.map((entry) => <button className="recent-food" key={entry.id} onClick={() => selectRecent(entry)}><div><strong>{entry.name}</strong><span>{entry.brand ? `${entry.brand} · ` : ''}{entry.amount} {entry.unit} · {Math.round(entry.calories)} kcal</span></div><Plus size={18} /></button>)}</div>
+            <div className="stack stack--tight">
+              <span className="eyebrow">Zuletzt verwendet</span>
+              {recent.map((entry) => (
+                <button className="recent-food" key={entry.id} onClick={() => selectRecent(entry)}>
+                  <div>
+                    <strong>{entry.name}</strong>
+                    <span>
+                      {entry.brand ? `${entry.brand} · ` : ''}
+                      {entry.amount} {entry.unit} · {Math.round(entry.calories)} kcal
+                    </span>
+                  </div>
+                  <Plus size={18} />
+                </button>
+              ))}
+            </div>
           )}
           {results.length > 0 && (
             <div className="stack stack--tight">
-              <div className="food-results-heading"><span className="eyebrow">Ergebnisse</span><span>{results.length} Treffer</span></div>
+              <div className="food-results-heading">
+                <span className="eyebrow">Ergebnisse</span>
+                <span>{results.length} Treffer</span>
+              </div>
               <div className="food-search-results">
                 {results.map((product, index) => {
                   const microCount = Object.keys(product.micronutrientsPer100).length
                   return (
-                    <button className="food-result" key={`${product.id}-${index}`} onClick={() => selectProduct(product)}>
-                      <span className="food-result__icon"><Utensils size={18} /></span>
-                      <span><strong>{product.name}</strong><small>{product.brand || 'Marke nicht angegeben'} · {Math.round(product.caloriesPer100)} kcal / 100 {product.unit}</small><small>{formatPreparationState(product.preparationState)}{product.portions.length ? ` · ${product.portions.length} Portionen` : ''}</small><small className={microCount ? 'food-result__micros food-result__micros--ready' : 'food-result__micros'}>{product.source === 'usda' ? 'USDA-Analyse · ' : ''}{microCount ? `${microCount} Mikronährstoffe enthalten` : 'Keine Mikronährstoffdaten'}</small></span>
+                    <button
+                      className="food-result"
+                      key={`${product.id}-${index}`}
+                      onClick={() => selectProduct(product)}
+                    >
+                      <span className="food-result__icon">
+                        <Utensils size={18} />
+                      </span>
+                      <span>
+                        <strong>{product.name}</strong>
+                        <small>
+                          {product.brand || 'Marke nicht angegeben'} · {Math.round(product.caloriesPer100)} kcal / 100{' '}
+                          {product.unit}
+                        </small>
+                        <small>
+                          {formatPreparationState(product.preparationState)}
+                          {product.portions.length ? ` · ${product.portions.length} Portionen` : ''}
+                        </small>
+                        <small
+                          className={
+                            microCount ? 'food-result__micros food-result__micros--ready' : 'food-result__micros'
+                          }
+                        >
+                          {product.source === 'usda' ? 'USDA-Analyse · ' : ''}
+                          {microCount ? `${microCount} Mikronährstoffe enthalten` : 'Keine Mikronährstoffdaten'}
+                        </small>
+                      </span>
                       <Plus size={18} />
                     </button>
                   )
                 })}
               </div>
-              <p className="food-source-note">Produkte und Marken von Open Food Facts. Ergänzende Analysewerte von USDA FoodData Central. Wähle für die Mikronährstoffauswertung möglichst einen Eintrag mit grüner Datenangabe.</p>
-              <Button variant="ghost" full onClick={() => startManual()}>Nicht dabei? Selbst eintragen</Button>
+              <p className="food-source-note">
+                Produkte und Marken von Open Food Facts. Ergänzende Analysewerte von USDA FoodData Central. Wähle für
+                die Mikronährstoffauswertung möglichst einen Eintrag mit grüner Datenangabe.
+              </p>
+              <Button variant="ghost" full onClick={() => startManual()}>
+                Nicht dabei? Selbst eintragen
+              </Button>
             </div>
           )}
-          {searchError && <><InfoNote>{searchError} Du kannst das Lebensmittel weiterhin selbst eintragen.</InfoNote><Button onClick={() => startManual()}><Plus size={18} /> Selbst eintragen</Button></>}
+          {searchError && (
+            <>
+              <InfoNote>{searchError} Du kannst das Lebensmittel weiterhin selbst eintragen.</InfoNote>
+              <Button onClick={() => startManual()}>
+                <Plus size={18} /> Selbst eintragen
+              </Button>
+            </>
+          )}
           {searchedQuery && !searching && results.length === 0 && !searchError && (
             <EmptyState
               icon={<Search size={24} />}
               title="Nichts Passendes gefunden"
               text={`Für „${searchedQuery}“ liefert die Datenbank keinen passenden Eintrag. Du kannst die Werte selbst ergänzen.`}
-              action={<Button onClick={() => startManual()}><Plus size={18} /> Selbst eintragen</Button>}
+              action={
+                <Button onClick={() => startManual()}>
+                  <Plus size={18} /> Selbst eintragen
+                </Button>
+              }
             />
           )}
-          {!searchedQuery && recent.length === 0 && <EmptyState icon={<Database size={24} />} title="Lebensmittel suchen" text="Durchsuche Open Food Facts oder lege ein eigenes Lebensmittel an." action={<Button onClick={() => startManual('')}><Plus size={18} /> Eigenes Lebensmittel</Button>} />}
+          {!searchedQuery && recent.length === 0 && (
+            <EmptyState
+              icon={<Database size={24} />}
+              title="Lebensmittel suchen"
+              text="Durchsuche Open Food Facts oder lege ein eigenes Lebensmittel an."
+              action={
+                <Button onClick={() => startManual('')}>
+                  <Plus size={18} /> Eigenes Lebensmittel
+                </Button>
+              }
+            />
+          )}
         </>
       ) : (
         <FoodEditor
@@ -269,7 +404,9 @@ export function FoodSearchModal({ open, meal, userId, date, previousEntries, onC
           showMicroEditor={showMicroEditor}
           onNameChange={setName}
           onBrandChange={setBrand}
-          onAmountChange={(value) => selectedProduct ? applyProductAmount(selectedProduct, value, unit, portion) : setAmount(value)}
+          onAmountChange={(value) =>
+            selectedProduct ? applyProductAmount(selectedProduct, value, unit, portion) : setAmount(value)
+          }
           onUnitChange={changeUnit}
           onCaloriesChange={setCalories}
           onProteinChange={setProtein}
@@ -316,48 +453,183 @@ interface FoodEditorProps {
   error: string
 }
 
-function FoodEditor({ selectedProduct, name, brand, amount, unit, calories, protein, carbs, fat, micronutrients, portion, showMicroEditor, onNameChange, onBrandChange, onAmountChange, onUnitChange, onCaloriesChange, onProteinChange, onCarbsChange, onFatChange, onPortionChange, onMicronutrientChange, onToggleMicros, onBack, onAdd, error }: FoodEditorProps) {
+function FoodEditor({
+  selectedProduct,
+  name,
+  brand,
+  amount,
+  unit,
+  calories,
+  protein,
+  carbs,
+  fat,
+  micronutrients,
+  portion,
+  showMicroEditor,
+  onNameChange,
+  onBrandChange,
+  onAmountChange,
+  onUnitChange,
+  onCaloriesChange,
+  onProteinChange,
+  onCarbsChange,
+  onFatChange,
+  onPortionChange,
+  onMicronutrientChange,
+  onToggleMicros,
+  onBack,
+  onAdd,
+  error,
+}: FoodEditorProps) {
   return (
     <>
-      {selectedProduct && <div className="database-selection"><Database size={18} /><div><strong>{selectedProduct.brand || 'Aus der Lebensmitteldatenbank'}</strong><span>{formatPreparationState(selectedProduct.preparationState)} · {Object.keys(selectedProduct.micronutrientsPer100).length ? `${Object.keys(selectedProduct.micronutrientsPer100).length} Mikronährstoffe werden mit der Menge angepasst.` : 'Dieser Datensatz enthält nur Kalorien und Makros.'}</span></div></div>}
-      <Field label="Lebensmittel" value={name} onChange={(event) => onNameChange(event.target.value)} placeholder="z. B. Skyr" autoFocus />
-      <Field label="Marke (optional)" value={brand} onChange={(event) => onBrandChange(event.target.value)} placeholder="z. B. K-Classic" maxLength={120} />
-      {selectedProduct && selectedProduct.portions.length > 0 && <SelectField label="Portion" value={portion ? String(selectedProduct.portions.findIndex((item) => item.label === portion.label)) : 'custom'} onChange={(event) => onPortionChange(event.target.value)}>
-        <option value="custom">Eigene Menge</option>
-        {selectedProduct.portions.map((item, index) => <option value={index} key={`${item.label}-${index}`}>{item.label}</option>)}
-      </SelectField>}
+      {selectedProduct && (
+        <div className="database-selection">
+          <Database size={18} />
+          <div>
+            <strong>{selectedProduct.brand || 'Aus der Lebensmitteldatenbank'}</strong>
+            <span>
+              {formatPreparationState(selectedProduct.preparationState)} ·{' '}
+              {Object.keys(selectedProduct.micronutrientsPer100).length
+                ? `${Object.keys(selectedProduct.micronutrientsPer100).length} Mikronährstoffe werden mit der Menge angepasst.`
+                : 'Dieser Datensatz enthält nur Kalorien und Makros.'}
+            </span>
+          </div>
+        </div>
+      )}
+      <Field
+        label="Lebensmittel"
+        value={name}
+        onChange={(event) => onNameChange(event.target.value)}
+        placeholder="z. B. Skyr"
+        autoFocus
+      />
+      <Field
+        label="Marke (optional)"
+        value={brand}
+        onChange={(event) => onBrandChange(event.target.value)}
+        placeholder="z. B. K-Classic"
+        maxLength={120}
+      />
+      {selectedProduct && selectedProduct.portions.length > 0 && (
+        <SelectField
+          label="Portion"
+          value={
+            portion ? String(selectedProduct.portions.findIndex((item) => item.label === portion.label)) : 'custom'
+          }
+          onChange={(event) => onPortionChange(event.target.value)}
+        >
+          <option value="custom">Eigene Menge</option>
+          {selectedProduct.portions.map((item, index) => (
+            <option value={index} key={`${item.label}-${index}`}>
+              {item.label}
+            </option>
+          ))}
+        </SelectField>
+      )}
       <div className="input-row">
-        <Field label="Menge" type="number" min="0.1" step="0.1" value={amount} onChange={(event) => onAmountChange(event.target.value)} />
-        <SelectField label="Einheit" value={unit} onChange={(event) => onUnitChange(event.target.value as FoodEntry['unit'])}>
-          {selectedProduct
-            ? <><option value={selectedProduct.unit}>{selectedProduct.unit === 'ml' ? 'Milliliter' : 'Gramm'}</option>{selectedProduct.portions.some((item) => item.unit === 'piece') && <option value="piece">Stück</option>}</>
-            : <><option value="g">Gramm</option><option value="ml">Milliliter</option><option value="piece">Stück</option></>}
+        <Field
+          label="Menge"
+          type="number"
+          min="0.1"
+          step="0.1"
+          value={amount}
+          onChange={(event) => onAmountChange(event.target.value)}
+        />
+        <SelectField
+          label="Einheit"
+          value={unit}
+          onChange={(event) => onUnitChange(event.target.value as FoodEntry['unit'])}
+        >
+          {selectedProduct ? (
+            <>
+              <option value={selectedProduct.unit}>{selectedProduct.unit === 'ml' ? 'Milliliter' : 'Gramm'}</option>
+              {selectedProduct.portions.some((item) => item.unit === 'piece') && <option value="piece">Stück</option>}
+            </>
+          ) : (
+            <>
+              <option value="g">Gramm</option>
+              <option value="ml">Milliliter</option>
+              <option value="piece">Stück</option>
+            </>
+          )}
         </SelectField>
       </div>
-      <Field label="Kalorien für diese Menge" type="number" min="0" value={calories} onChange={(event) => onCaloriesChange(event.target.value)} placeholder="0" />
+      <Field
+        label="Kalorien für diese Menge"
+        type="number"
+        min="0"
+        value={calories}
+        onChange={(event) => onCaloriesChange(event.target.value)}
+        placeholder="0"
+      />
       <div className="grid-3 body-inputs">
-        <Field label="Eiweiß (g)" type="number" min="0" step="0.1" value={protein} onChange={(event) => onProteinChange(event.target.value)} placeholder="0" />
-        <Field label="Kohlenh. (g)" type="number" min="0" step="0.1" value={carbs} onChange={(event) => onCarbsChange(event.target.value)} placeholder="0" />
-        <Field label="Fett (g)" type="number" min="0" step="0.1" value={fat} onChange={(event) => onFatChange(event.target.value)} placeholder="0" />
-      </div>
-      <button className="micro-editor-toggle" type="button" aria-expanded={showMicroEditor} onClick={onToggleMicros}>
-        <span><Database size={17} /> Mikronährstoffe für diese Menge</span>
-        <span>{Object.keys(micronutrients).length} eingetragen {showMicroEditor ? <ChevronUp size={17} /> : <ChevronDown size={17} />}</span>
-      </button>
-      {showMicroEditor && <div className="micro-editor-grid">
-        {nutrientReferences.map((nutrient) => <Field
-          key={nutrient.key}
-          label={`${nutrient.label} (${nutrient.unit})`}
+        <Field
+          label="Eiweiß (g)"
           type="number"
           min="0"
-          step="any"
-          value={micronutrients[nutrient.key] ?? ''}
-          onChange={(event) => onMicronutrientChange(nutrient.key, event.target.value)}
-          placeholder="Keine Angabe"
-        />)}
-      </div>}
-      {error && <p className="form-error" role="alert">{error}</p>}
-      <div className="row"><Button variant="secondary" onClick={onBack}>Zurück</Button><Button full disabled={!name.trim() || !calories} onClick={onAdd}>Hinzufügen</Button></div>
+          step="0.1"
+          value={protein}
+          onChange={(event) => onProteinChange(event.target.value)}
+          placeholder="0"
+        />
+        <Field
+          label="Kohlenh. (g)"
+          type="number"
+          min="0"
+          step="0.1"
+          value={carbs}
+          onChange={(event) => onCarbsChange(event.target.value)}
+          placeholder="0"
+        />
+        <Field
+          label="Fett (g)"
+          type="number"
+          min="0"
+          step="0.1"
+          value={fat}
+          onChange={(event) => onFatChange(event.target.value)}
+          placeholder="0"
+        />
+      </div>
+      <button className="micro-editor-toggle" type="button" aria-expanded={showMicroEditor} onClick={onToggleMicros}>
+        <span>
+          <Database size={17} /> Mikronährstoffe für diese Menge
+        </span>
+        <span>
+          {Object.keys(micronutrients).length} eingetragen{' '}
+          {showMicroEditor ? <ChevronUp size={17} /> : <ChevronDown size={17} />}
+        </span>
+      </button>
+      {showMicroEditor && (
+        <div className="micro-editor-grid">
+          {nutrientReferences.map((nutrient) => (
+            <Field
+              key={nutrient.key}
+              label={`${nutrient.label} (${nutrient.unit})`}
+              type="number"
+              min="0"
+              step="any"
+              value={micronutrients[nutrient.key] ?? ''}
+              onChange={(event) => onMicronutrientChange(nutrient.key, event.target.value)}
+              placeholder="Keine Angabe"
+            />
+          ))}
+        </div>
+      )}
+      {error && (
+        <p className="form-error" role="alert">
+          {error}
+        </p>
+      )}
+      <div className="row">
+        <Button variant="secondary" onClick={onBack}>
+          Zurück
+        </Button>
+        <Button full disabled={!name.trim() || !calories} onClick={onAdd}>
+          Hinzufügen
+        </Button>
+      </div>
     </>
   )
 }

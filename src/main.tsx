@@ -9,6 +9,8 @@ registerSW({ immediate: true })
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <ErrorBoundary><App /></ErrorBoundary>
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>
   </StrictMode>,
 )

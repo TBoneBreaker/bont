@@ -19,12 +19,24 @@ function mockSupabase(remoteRows: Record<string, unknown[]>) {
         pushed = payload
         return query
       },
-      select() { return query },
-      maybeSingle() { return Promise.resolve({ data: pushed, error: null }) },
-      eq() { return query },
-      order() { return query },
-      range() { return query },
-      or() { return query },
+      select() {
+        return query
+      },
+      maybeSingle() {
+        return Promise.resolve({ data: pushed, error: null })
+      },
+      eq() {
+        return query
+      },
+      order() {
+        return query
+      },
+      range() {
+        return query
+      },
+      or() {
+        return query
+      },
       then(resolve: (value: { data: unknown[]; error: null }) => unknown, reject?: (reason: unknown) => unknown) {
         return Promise.resolve({ data: remoteRows[table] ?? [], error: null }).then(resolve, reject)
       },
@@ -54,7 +66,12 @@ describe('sync engine transport', () => {
   })
 
   it('pulls remote rows without allowing an older remote row to replace newer local data', async () => {
-    const meal: MealSlot = { ...createBase(userId), name: 'Lokal', order_index: 0, updated_at: '2026-01-04T00:00:00.000Z' }
+    const meal: MealSlot = {
+      ...createBase(userId),
+      name: 'Lokal',
+      order_index: 0,
+      updated_at: '2026-01-04T00:00:00.000Z',
+    }
     await saveRecord('meal_slots', meal, false)
     mockSupabase({ meal_slots: [{ ...meal, name: 'Alt', updated_at: '2026-01-03T00:00:00.000Z' }] })
 

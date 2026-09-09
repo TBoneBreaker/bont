@@ -27,7 +27,15 @@ export function IconButton({ label, children, ...props }: ButtonHTMLAttributes<H
   )
 }
 
-export function Card({ children, className = '', onClick }: { children: ReactNode; className?: string; onClick?: () => void }) {
+export function Card({
+  children,
+  className = '',
+  onClick,
+}: {
+  children: ReactNode
+  className?: string
+  onClick?: () => void
+}) {
   if (onClick) {
     return (
       <button className={`card card--interactive ${className}`} onClick={onClick}>
@@ -76,9 +84,7 @@ export function NumberStepper({
   const adjust = (direction: -1 | 1) => {
     const parsed = Number(value)
     const base = value === '' || Number.isNaN(parsed) ? null : parsed
-    let next = base === null
-      ? direction === 1 ? (min > 0 ? min : step) : min
-      : base + direction * step
+    let next = base === null ? (direction === 1 ? (min > 0 ? min : step) : min) : base + direction * step
     next = Math.max(min, max === undefined ? next : Math.min(max, next))
     onChange(format(next))
   }
@@ -87,7 +93,9 @@ export function NumberStepper({
     <div className="field">
       <span className="field__label">{label}</span>
       <span className="number-stepper">
-        <button type="button" aria-label={`${label} verringern`} onClick={() => adjust(-1)}><Minus size={18} /></button>
+        <button type="button" aria-label={`${label} verringern`} onClick={() => adjust(-1)}>
+          <Minus size={18} />
+        </button>
         <span className="number-stepper__value">
           <input
             aria-label={inputLabel ?? label}
@@ -101,7 +109,9 @@ export function NumberStepper({
           />
           {unit && <small>{unit}</small>}
         </span>
-        <button type="button" aria-label={`${label} erhöhen`} onClick={() => adjust(1)}><Plus size={18} /></button>
+        <button type="button" aria-label={`${label} erhöhen`} onClick={() => adjust(1)}>
+          <Plus size={18} />
+        </button>
       </span>
     </div>
   )
@@ -115,7 +125,9 @@ export function SelectField({
   return (
     <label className="field">
       <span className="field__label">{label}</span>
-      <select className="input select" {...props}>{children}</select>
+      <select className="input select" {...props}>
+        {children}
+      </select>
     </label>
   )
 }
@@ -134,16 +146,35 @@ export function TextareaField({
   return (
     <label className="field">
       <span className="field__label">{label}</span>
-      <textarea className="input textarea" value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} />
+      <textarea
+        className="input textarea"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
+      />
     </label>
   )
 }
 
-export function ScreenHeader({ title, eyebrow, onBack, action }: { title: string; eyebrow?: string; onBack?: () => void; action?: ReactNode }) {
+export function ScreenHeader({
+  title,
+  eyebrow,
+  onBack,
+  action,
+}: {
+  title: string
+  eyebrow?: string
+  onBack?: () => void
+  action?: ReactNode
+}) {
   return (
     <header className="screen-header">
       <div className="screen-header__side">
-        {onBack && <IconButton label="Zurück" onClick={onBack}><ArrowLeft size={20} /></IconButton>}
+        {onBack && (
+          <IconButton label="Zurück" onClick={onBack}>
+            <ArrowLeft size={20} />
+          </IconButton>
+        )}
       </div>
       <div className="screen-header__copy">
         {eyebrow && <span className="eyebrow">{eyebrow}</span>}
@@ -154,7 +185,17 @@ export function ScreenHeader({ title, eyebrow, onBack, action }: { title: string
   )
 }
 
-export function Modal({ open, title, onClose, children }: { open: boolean; title: string; onClose: () => void; children: ReactNode }) {
+export function Modal({
+  open,
+  title,
+  onClose,
+  children,
+}: {
+  open: boolean
+  title: string
+  onClose: () => void
+  children: ReactNode
+}) {
   const [keyboardInset, setKeyboardInset] = useState(0)
 
   useEffect(() => {
@@ -182,12 +223,24 @@ export function Modal({ open, title, onClose, children }: { open: boolean; title
 
   if (!open) return null
   return (
-    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-      <section className="modal" role="dialog" aria-modal="true" aria-label={title} style={{ '--keyboard-inset': `${keyboardInset}px` } as CSSProperties}>
+    <div
+      className="modal-backdrop"
+      role="presentation"
+      onMouseDown={(event) => event.target === event.currentTarget && onClose()}
+    >
+      <section
+        className="modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        style={{ '--keyboard-inset': `${keyboardInset}px` } as CSSProperties}
+      >
         <div className="modal__handle" />
         <div className="modal__header">
           <h2>{title}</h2>
-          <IconButton label="Schließen" onClick={onClose}><X size={20} /></IconButton>
+          <IconButton label="Schließen" onClick={onClose}>
+            <X size={20} />
+          </IconButton>
         </div>
         <div className="modal__content">{children}</div>
       </section>
@@ -196,10 +249,24 @@ export function Modal({ open, title, onClose, children }: { open: boolean; title
 }
 
 export function ProgressBar({ value, tone = 'green' }: { value: number; tone?: 'green' | 'blue' | 'taupe' }) {
-  return <div className="progress" aria-label={`${Math.round(value)} Prozent`}><span className={`progress__fill tone-${tone}`} style={{ width: `${Math.max(0, Math.min(100, value))}%` }} /></div>
+  return (
+    <div className="progress" aria-label={`${Math.round(value)} Prozent`}>
+      <span className={`progress__fill tone-${tone}`} style={{ width: `${Math.max(0, Math.min(100, value))}%` }} />
+    </div>
+  )
 }
 
-export function EmptyState({ icon, title, text, action }: { icon?: ReactNode; title: string; text: string; action?: ReactNode }) {
+export function EmptyState({
+  icon,
+  title,
+  text,
+  action,
+}: {
+  icon?: ReactNode
+  title: string
+  text: string
+  action?: ReactNode
+}) {
   return (
     <div className="empty-state">
       {icon && <div className="empty-state__icon">{icon}</div>}
@@ -211,20 +278,39 @@ export function EmptyState({ icon, title, text, action }: { icon?: ReactNode; ti
 }
 
 export function InfoNote({ children }: { children: ReactNode }) {
-  return <div className="info-note"><Info size={17} aria-hidden="true" /><span>{children}</span></div>
+  return (
+    <div className="info-note">
+      <Info size={17} aria-hidden="true" />
+      <span>{children}</span>
+    </div>
+  )
 }
 
 export function LoadingScreen({ label = 'Bont wird vorbereitet' }: { label?: string }) {
   return (
     <main className="center-screen">
       <div className="brand-mark">B</div>
-      <div className="loading-dots" aria-label={label}><span /><span /><span /></div>
+      <div className="loading-dots" aria-label={label}>
+        <span />
+        <span />
+        <span />
+      </div>
       <p className="muted">{label}</p>
     </main>
   )
 }
 
-export function Metric({ label, value, detail, tone = 'neutral' }: { label: string; value: ReactNode; detail?: string; tone?: 'neutral' | 'green' | 'blue' | 'taupe' }) {
+export function Metric({
+  label,
+  value,
+  detail,
+  tone = 'neutral',
+}: {
+  label: string
+  value: ReactNode
+  detail?: string
+  tone?: 'neutral' | 'green' | 'blue' | 'taupe'
+}) {
   return (
     <div className={`metric metric--${tone}`}>
       <span className="metric__label">{label}</span>

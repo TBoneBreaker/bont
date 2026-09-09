@@ -6,7 +6,11 @@ import { useAppState } from './features/app/use-app-state'
 
 export function App() {
   const demoMode = window.location.pathname === '/demo' || new URLSearchParams(window.location.search).has('demo')
-  return <AuthGate demoMode={demoMode}>{({ userId, demoMode: isDemo }) => <AuthenticatedApp userId={userId} demoMode={isDemo} />}</AuthGate>
+  return (
+    <AuthGate demoMode={demoMode}>
+      {({ userId, demoMode: isDemo }) => <AuthenticatedApp userId={userId} demoMode={isDemo} />}
+    </AuthGate>
+  )
 }
 
 function AuthenticatedApp({ userId, demoMode }: { userId: string; demoMode: boolean }) {
@@ -14,9 +18,15 @@ function AuthenticatedApp({ userId, demoMode }: { userId: string; demoMode: bool
 
   return (
     <SyncProvider userId={userId} demoMode={demoMode}>
-      {() => !profile?.onboarding_completed
-        ? <div data-theme="light"><Onboarding userId={userId} onComplete={() => undefined} /></div>
-        : <AppShell userId={userId} profile={profile} demoMode={demoMode} />}
+      {() =>
+        !profile?.onboarding_completed ? (
+          <div data-theme="light">
+            <Onboarding userId={userId} onComplete={() => undefined} />
+          </div>
+        ) : (
+          <AppShell userId={userId} profile={profile} demoMode={demoMode} />
+        )
+      }
     </SyncProvider>
   )
 }

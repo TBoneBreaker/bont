@@ -64,8 +64,11 @@ export function scheduleUserSync(userId: string) {
   if (typeof navigator !== 'undefined' && !navigator.onLine) return
   const current = timers.get(userId)
   if (current) clearTimeout(current)
-  timers.set(userId, setTimeout(() => {
-    timers.delete(userId)
-    syncRunner?.(userId)
-  }, 350))
+  timers.set(
+    userId,
+    setTimeout(() => {
+      timers.delete(userId)
+      syncRunner?.(userId)
+    }, 350),
+  )
 }

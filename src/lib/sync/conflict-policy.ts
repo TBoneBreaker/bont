@@ -36,8 +36,14 @@ export function decodeCursor(value: string | null | undefined): SyncCursor | nul
   if (!value) return null
   try {
     const parsed: unknown = JSON.parse(value)
-    if (parsed && typeof parsed === 'object' && 'updated_at' in parsed && 'id' in parsed
-      && typeof parsed.updated_at === 'string' && typeof parsed.id === 'string') {
+    if (
+      parsed &&
+      typeof parsed === 'object' &&
+      'updated_at' in parsed &&
+      'id' in parsed &&
+      typeof parsed.updated_at === 'string' &&
+      typeof parsed.id === 'string'
+    ) {
       return { updated_at: parsed.updated_at, id: parsed.id }
     }
   } catch {

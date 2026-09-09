@@ -17,7 +17,11 @@ describe('durable outbox', () => {
     await saveRecord('meal_slots', meal, true)
 
     expect(await db.meal_slots.get(meal.id)).toMatchObject({ name: 'Frühstück' })
-    expect(await db.outbox.get(`meal_slots:${meal.id}`)).toMatchObject({ status: 'pending', retry_count: 0, user_id: userId })
+    expect(await db.outbox.get(`meal_slots:${meal.id}`)).toMatchObject({
+      status: 'pending',
+      retry_count: 0,
+      user_id: userId,
+    })
     expect((await listDueOutbox(userId)).map((item) => item.record_id)).toEqual([meal.id])
   })
 
@@ -74,7 +78,11 @@ describe('durable outbox', () => {
 
     const migrated = new BontDatabase(name)
     await migrated.open()
-    expect(await migrated.outbox.get('meal_slots:legacy')).toMatchObject({ user_id: userId, status: 'pending', retry_count: 0 })
+    expect(await migrated.outbox.get('meal_slots:legacy')).toMatchObject({
+      user_id: userId,
+      status: 'pending',
+      retry_count: 0,
+    })
     await migrated.delete()
   })
 })

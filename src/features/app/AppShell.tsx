@@ -7,9 +7,15 @@ import { useAppState } from './use-app-state'
 import type { Profile, ThemeMode } from '../../types'
 
 const BodyScreen = lazy(() => import('../body/BodyScreen').then((module) => ({ default: module.BodyScreen })))
-const NutritionScreen = lazy(() => import('../nutrition/NutritionScreen').then((module) => ({ default: module.NutritionScreen })))
-const TrainingScreen = lazy(() => import('../training/TrainingScreen').then((module) => ({ default: module.TrainingScreen })))
-const SettingsPanel = lazy(() => import('../settings/SettingsPanel').then((module) => ({ default: module.SettingsPanel })))
+const NutritionScreen = lazy(() =>
+  import('../nutrition/NutritionScreen').then((module) => ({ default: module.NutritionScreen })),
+)
+const TrainingScreen = lazy(() =>
+  import('../training/TrainingScreen').then((module) => ({ default: module.TrainingScreen })),
+)
+const SettingsPanel = lazy(() =>
+  import('../settings/SettingsPanel').then((module) => ({ default: module.SettingsPanel })),
+)
 
 export function AppShell({ userId, profile, demoMode }: { userId: string; profile: Profile; demoMode: boolean }) {
   const [tab, setTab] = useState<Tab>('training')
@@ -18,6 +24,17 @@ export function AppShell({ userId, profile, demoMode }: { userId: string; profil
   const { settings, sync: outbox } = useAppState(userId)
   const resolvedTheme = useResolvedTheme(settings?.theme ?? 'system')
   const pending = outbox.pending + outbox.failed + outbox.deadLetter
+  const syncLabel = demoMode
+    ? 'Demo · nur lokal'
+    : !online
+      ? 'Offline gespeichert'
+      : outbox.deadLetter
+        ? `${outbox.deadLetter} Änderung${outbox.deadLetter === 1 ? '' : 'en'} benötigen Aufmerksamkeit`
+        : outbox.failed
+          ? `${outbox.failed} Änderung${outbox.failed === 1 ? '' : 'en'} werden erneut versucht`
+          : pending
+            ? `${pending} Änderungen warten`
+            : 'Synchronisiert'
 
   return (
     <div className="app" data-theme={resolvedTheme}>
@@ -26,8 +43,14 @@ export function AppShell({ userId, profile, demoMode }: { userId: string; profil
           <span className="wordmark">bont</span>
           <div className="topbar__actions">
             {demoMode && <span className="pill">Demo</span>}
-            <span className={`connection-dot ${demoMode || !online ? 'connection-dot--offline' : ''}`} title={demoMode ? 'Demo · nur lokal' : online ? pending ? `${pending} Änderungen warten` : 'Synchronisiert' : 'Offline gespeichert'} />
-            <IconButton label="Einstellungen öffnen" onClick={() => setSettingsOpen(true)}><Settings size={20} /></IconButton>
+            <span
+              className={`connection-dot ${demoMode || !online ? 'connection-dot--offline' : ''}`}
+              title={syncLabel}
+              aria-label={syncLabel}
+            />
+            <IconButton label="Einstellungen öffnen" onClick={() => setSettingsOpen(true)}>
+              <Settings size={20} />
+            </IconButton>
           </div>
         </header>
         <Suspense fallback={<LoadingScreen label="Bereich wird geladen" />}>
@@ -38,7 +61,14 @@ export function AppShell({ userId, profile, demoMode }: { userId: string; profil
       </div>
       <Navigation tab={tab} onChange={setTab} />
       <Suspense fallback={null}>
-        <SettingsPanel open={settingsOpen} profile={profile} online={online} demo={demoMode} onClose={() => setSettingsOpen(false)} onSignedOut={() => setSettingsOpen(false)} />
+        <SettingsPanel
+          open={settingsOpen}
+          profile={profile}
+          online={online}
+          demo={demoMode}
+          onClose={() => setSettingsOpen(false)}
+          onSignedOut={() => setSettingsOpen(false)}
+        />
       </Suspense>
     </div>
   )
@@ -53,5 +83,5 @@ function useResolvedTheme(theme: ThemeMode) {
     media.addEventListener('change', update)
     return () => media.removeEventListener('change', update)
   }, [])
-  return useMemo(() => theme === 'system' ? systemDark ? 'dark' : 'light' : theme, [theme, systemDark])
+  return useMemo(() => (theme === 'system' ? (systemDark ? 'dark' : 'light') : theme), [theme, systemDark])
 }

@@ -16,18 +16,30 @@ export function WorkoutView({ userId, sessionId, onExit }: { userId: string; ses
   const [progressExercise, setProgressExercise] = useState<Exercise | null>(null)
   const { session, day, exercises, sets } = useWorkoutData(userId, sessionId)
 
-  const completeExerciseIds = useMemo(() => new Set(exercises.filter((exercise) => {
-    const exerciseSets = sets.filter((set) => set.exercise_id === exercise.id)
-    return exerciseSets.length > 0 && exerciseSets.every((set) => set.is_completed)
-  }).map((exercise) => exercise.id)), [exercises, sets])
-  const orderedExercises = useMemo(() => [
-    ...exercises.filter((exercise) => !completeExerciseIds.has(exercise.id)),
-    ...exercises.filter((exercise) => completeExerciseIds.has(exercise.id)),
-  ], [exercises, completeExerciseIds])
+  const completeExerciseIds = useMemo(
+    () =>
+      new Set(
+        exercises
+          .filter((exercise) => {
+            const exerciseSets = sets.filter((set) => set.exercise_id === exercise.id)
+            return exerciseSets.length > 0 && exerciseSets.every((set) => set.is_completed)
+          })
+          .map((exercise) => exercise.id),
+      ),
+    [exercises, sets],
+  )
+  const orderedExercises = useMemo(
+    () => [
+      ...exercises.filter((exercise) => !completeExerciseIds.has(exercise.id)),
+      ...exercises.filter((exercise) => completeExerciseIds.has(exercise.id)),
+    ],
+    [exercises, completeExerciseIds],
+  )
 
-  const resolvedSelectedExerciseId = selectedExerciseId && exercises.some((exercise) => exercise.id === selectedExerciseId)
-    ? selectedExerciseId
-    : exercises.find((exercise) => !completeExerciseIds.has(exercise.id))?.id ?? exercises[0]?.id
+  const resolvedSelectedExerciseId =
+    selectedExerciseId && exercises.some((exercise) => exercise.id === selectedExerciseId)
+      ? selectedExerciseId
+      : (exercises.find((exercise) => !completeExerciseIds.has(exercise.id))?.id ?? exercises[0]?.id)
 
   const allDone = exercises.length > 0 && exercises.every((exercise) => completeExerciseIds.has(exercise.id))
 
@@ -87,20 +99,51 @@ export function WorkoutView({ userId, sessionId, onExit }: { userId: string; ses
     }
   }
 
-  if (!session || !day) return <div className="center-screen"><p className="muted">Training wird geladen …</p></div>
+  if (!session || !day)
+    return (
+      <div className="center-screen">
+        <p className="muted">Training wird geladen …</p>
+      </div>
+    )
 
   return (
     <div className="subview workout-shell">
-      <ScreenHeader title={day.name} eyebrow="Laufendes Training" onBack={onExit} action={<span className="pill">{completeExerciseIds.size}/{exercises.length}</span>} />
+      <ScreenHeader
+        title={day.name}
+        eyebrow="Laufendes Training"
+        onBack={onExit}
+        action={
+          <span className="pill">
+            {completeExerciseIds.size}/{exercises.length}
+          </span>
+        }
+      />
       <main className="content content--narrow">
         <Card className="workout-date-card">
-          <div><CalendarDays size={19} /><div><span>Trainingsdatum</span><strong>{formatLongDate(session.started_at.slice(0, 10))}</strong></div></div>
-          <input aria-label="Trainingsdatum ändern" type="date" value={session.started_at.slice(0, 10)} max={today()} onChange={(event) => void changeDate(event.target.value)} />
+          <div>
+            <CalendarDays size={19} />
+            <div>
+              <span>Trainingsdatum</span>
+              <strong>{formatLongDate(session.started_at.slice(0, 10))}</strong>
+            </div>
+          </div>
+          <input
+            aria-label="Trainingsdatum ändern"
+            type="date"
+            value={session.started_at.slice(0, 10)}
+            max={today()}
+            onChange={(event) => void changeDate(event.target.value)}
+          />
         </Card>
 
         <div className="workout-progress-copy">
-          <div><span className="eyebrow">Übungen</span><h2>{allDone ? 'Alles erledigt.' : 'Wähle deine nächste Übung.'}</h2></div>
-          <span>{completeExerciseIds.size} von {exercises.length}</span>
+          <div>
+            <span className="eyebrow">Übungen</span>
+            <h2>{allDone ? 'Alles erledigt.' : 'Wähle deine nächste Übung.'}</h2>
+          </div>
+          <span>
+            {completeExerciseIds.size} von {exercises.length}
+          </span>
         </div>
 
         <div className="workout-exercise-list">
@@ -109,13 +152,33 @@ export function WorkoutView({ userId, sessionId, onExit }: { userId: string; ses
             const selected = resolvedSelectedExerciseId === exercise.id
             const exerciseSets = sets.filter((set) => set.exercise_id === exercise.id)
             return (
-              <Card key={exercise.id} className={`workout-exercise ${complete ? 'workout-exercise--complete' : 'workout-exercise--pending'} ${selected ? 'workout-exercise--selected' : ''}`}>
+              <Card
+                key={exercise.id}
+                className={`workout-exercise ${complete ? 'workout-exercise--complete' : 'workout-exercise--pending'} ${selected ? 'workout-exercise--selected' : ''}`}
+              >
                 <div className="workout-exercise__head">
-                  <button className="workout-exercise__select" onClick={() => setSelectedExerciseId(exercise.id)} aria-expanded={selected}>
-                    <span className="workout-exercise__status">{complete ? <CheckCircle2 size={20} /> : <Circle size={20} />}</span>
-                    <span><strong>{exercise.name}</strong><small>{exerciseSets.length} {exerciseSets.length === 1 ? 'Satz' : 'Sätze'} · {complete ? 'abgeschlossen' : 'offen'}</small></span>
+                  <button
+                    className="workout-exercise__select"
+                    onClick={() => setSelectedExerciseId(exercise.id)}
+                    aria-expanded={selected}
+                  >
+                    <span className="workout-exercise__status">
+                      {complete ? <CheckCircle2 size={20} /> : <Circle size={20} />}
+                    </span>
+                    <span>
+                      <strong>{exercise.name}</strong>
+                      <small>
+                        {exerciseSets.length} {exerciseSets.length === 1 ? 'Satz' : 'Sätze'} ·{' '}
+                        {complete ? 'abgeschlossen' : 'offen'}
+                      </small>
+                    </span>
                   </button>
-                  <IconButton label={`Fortschritt für ${exercise.name} anzeigen`} onClick={() => setProgressExercise(exercise)}><BarChart3 size={19} /></IconButton>
+                  <IconButton
+                    label={`Fortschritt für ${exercise.name} anzeigen`}
+                    onClick={() => setProgressExercise(exercise)}
+                  >
+                    <BarChart3 size={19} />
+                  </IconButton>
                 </div>
 
                 {selected && (
@@ -123,19 +186,48 @@ export function WorkoutView({ userId, sessionId, onExit }: { userId: string; ses
                     <div className="set-cards">
                       {exerciseSets.map((set) => (
                         <div className={`set-card ${set.is_completed ? 'set-card--done' : ''}`} key={set.id}>
-                          <div className="set-card__number"><span>Satz</span><strong>{set.set_number}</strong></div>
+                          <div className="set-card__number">
+                            <span>Satz</span>
+                            <strong>{set.set_number}</strong>
+                          </div>
                           <div className="set-input-grid">
-                            <NumberStepper label="Gewicht" inputLabel={`Gewicht Satz ${set.set_number}`} value={set.weight_kg === null ? '' : String(set.weight_kg)} onChange={(value) => void updateSet(set, 'weight_kg', value)} step={0.5} min={0} max={500} unit="kg" />
-                            <NumberStepper label="Wiederholungen" inputLabel={`Wiederholungen Satz ${set.set_number}`} value={set.reps === null ? '' : String(set.reps)} onChange={(value) => void updateSet(set, 'reps', value)} step={1} min={1} max={100} unit="Wdh." />
+                            <NumberStepper
+                              label="Gewicht"
+                              inputLabel={`Gewicht Satz ${set.set_number}`}
+                              value={set.weight_kg === null ? '' : String(set.weight_kg)}
+                              onChange={(value) => void updateSet(set, 'weight_kg', value)}
+                              step={0.5}
+                              min={0}
+                              max={500}
+                              unit="kg"
+                            />
+                            <NumberStepper
+                              label="Wiederholungen"
+                              inputLabel={`Wiederholungen Satz ${set.set_number}`}
+                              value={set.reps === null ? '' : String(set.reps)}
+                              onChange={(value) => void updateSet(set, 'reps', value)}
+                              step={1}
+                              min={1}
+                              max={100}
+                              unit="Wdh."
+                            />
                           </div>
                         </div>
                       ))}
                     </div>
-                    {message && !complete && <p className="form-error" role="status">{message}</p>}
+                    {message && !complete && (
+                      <p className="form-error" role="status">
+                        {message}
+                      </p>
+                    )}
                     {complete ? (
-                      <Button variant="secondary" full onClick={() => void reopenExercise(exercise)}><RotateCcw size={17} /> Übung wieder öffnen</Button>
+                      <Button variant="secondary" full onClick={() => void reopenExercise(exercise)}>
+                        <RotateCcw size={17} /> Übung wieder öffnen
+                      </Button>
                     ) : (
-                      <Button full onClick={() => void finishExercise(exercise)}><Check size={18} /> Übung abschließen</Button>
+                      <Button full onClick={() => void finishExercise(exercise)}>
+                        <Check size={18} /> Übung abschließen
+                      </Button>
                     )}
                   </div>
                 )}
@@ -144,15 +236,27 @@ export function WorkoutView({ userId, sessionId, onExit }: { userId: string; ses
           })}
         </div>
 
-        <Button full disabled={!allDone} onClick={() => void completeWorkout()}><CheckCircle2 size={19} /> {allDone ? `${day.name} abschließen` : 'Training abschließen'}</Button>
-        <p className="auth-note">Du kannst diese Ansicht jederzeit verlassen. Alle Eingaben und das laufende Training bleiben lokal gespeichert.</p>
+        <Button full disabled={!allDone} onClick={() => void completeWorkout()}>
+          <CheckCircle2 size={19} /> {allDone ? `${day.name} abschließen` : 'Training abschließen'}
+        </Button>
+        <p className="auth-note">
+          Du kannst diese Ansicht jederzeit verlassen. Alle Eingaben und das laufende Training bleiben lokal
+          gespeichert.
+        </p>
       </main>
-      <ExerciseProgressModal open={Boolean(progressExercise)} exercise={progressExercise} userId={userId} onClose={() => setProgressExercise(null)} />
+      <ExerciseProgressModal
+        open={Boolean(progressExercise)}
+        exercise={progressExercise}
+        userId={userId}
+        onClose={() => setProgressExercise(null)}
+      />
       {message && allDone && <div className="toast">{message}</div>}
     </div>
   )
 }
 
 function formatLongDate(value: string) {
-  return new Intl.DateTimeFormat('de-DE', { weekday: 'short', day: '2-digit', month: 'short' }).format(new Date(`${value}T12:00:00`))
+  return new Intl.DateTimeFormat('de-DE', { weekday: 'short', day: '2-digit', month: 'short' }).format(
+    new Date(`${value}T12:00:00`),
+  )
 }

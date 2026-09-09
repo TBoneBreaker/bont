@@ -34,7 +34,20 @@ describe('application commands', () => {
 
   it('soft-deletes a meal and its food entries without hard cascading', async () => {
     const meal: MealSlot = { ...createBase(userId), name: 'Mittag', order_index: 0 }
-    const food: FoodEntry = { ...createBase(userId), meal_slot_id: meal.id, entry_date: '2026-01-01', name: 'Reis', brand: '', amount: 100, unit: 'g', calories: 350, protein_g: 7, carbs_g: 77, fat_g: 1, micronutrients: {} }
+    const food: FoodEntry = {
+      ...createBase(userId),
+      meal_slot_id: meal.id,
+      entry_date: '2026-01-01',
+      name: 'Reis',
+      brand: '',
+      amount: 100,
+      unit: 'g',
+      calories: 350,
+      protein_g: 7,
+      carbs_g: 77,
+      fat_g: 1,
+      micronutrients: {},
+    }
     await saveRecord('meal_slots', meal, false)
     await saveRecord('food_entries', food, false)
     await deleteMeal(userId, meal)
@@ -54,9 +67,22 @@ describe('application commands', () => {
   })
 
   it('creates a workout session and all sets atomically', async () => {
-    const plan: TrainingPlan = { ...createBase(userId), name: 'Plan', split_size: 1, notes: '', is_active: true, is_template: false }
+    const plan: TrainingPlan = {
+      ...createBase(userId),
+      name: 'Plan',
+      split_size: 1,
+      notes: '',
+      is_active: true,
+      is_template: false,
+    }
     const day: TrainingDay = { ...createBase(userId), plan_id: plan.id, name: 'Ganzkörper', order_index: 0 }
-    const exercise: Exercise = { ...createBase(userId), training_day_id: day.id, name: 'Kniebeuge', target_sets: 2, order_index: 0 }
+    const exercise: Exercise = {
+      ...createBase(userId),
+      training_day_id: day.id,
+      name: 'Kniebeuge',
+      target_sets: 2,
+      order_index: 0,
+    }
     await saveRecord('training_plans', plan, false)
     await saveRecord('training_days', day, false)
     await saveRecord('exercises', exercise, false)

@@ -1,4 +1,4 @@
-import type { BodyEntry } from '../types'
+import type { ActivityLevel, BodyEntry } from '../types'
 
 export interface MaintenanceEstimate {
   days: number
@@ -16,8 +16,13 @@ type WeightBodyEntry = BodyEntry & { weight_kg: number }
 
 export function estimateMaintenance(entries: BodyEntry[]): MaintenanceEstimate {
   const usable = entries
-    .filter((entry): entry is CompleteBodyEntry =>
-      !entry.deleted_at && entry.weight_kg !== null && entry.weight_kg > 0 && entry.calories !== null && entry.calories > 0,
+    .filter(
+      (entry): entry is CompleteBodyEntry =>
+        !entry.deleted_at &&
+        entry.weight_kg !== null &&
+        entry.weight_kg > 0 &&
+        entry.calories !== null &&
+        entry.calories > 0,
     )
     .sort(byDate)
     .slice(-28)
@@ -83,13 +88,12 @@ export function calculateAge(birthDate: string, now = new Date()) {
   const birth = new Date(`${birthDate}T12:00:00`)
   let age = now.getFullYear() - birth.getFullYear()
   const beforeBirthday =
-    now.getMonth() < birth.getMonth() ||
-    (now.getMonth() === birth.getMonth() && now.getDate() < birth.getDate())
+    now.getMonth() < birth.getMonth() || (now.getMonth() === birth.getMonth() && now.getDate() < birth.getDate())
   if (beforeBirthday) age -= 1
   return age
 }
 
-const activityFactors: Record<string, number> = {
+const activityFactors: Record<ActivityLevel, number> = {
   low: 1.2,
   light: 1.375,
   moderate: 1.55,
@@ -102,7 +106,7 @@ export function preliminaryMaintenance(input: {
   birthDate: string
   heightCm: number
   weightKg: number
-  activityLevel: string
+  activityLevel: ActivityLevel
 }) {
   const age = Math.max(16, calculateAge(input.birthDate))
   const sexOffset = input.sex === 'male' ? 5 : -161

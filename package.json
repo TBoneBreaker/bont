@@ -8,7 +8,7 @@
     "build": "tsc -b && vite build",
     "typecheck": "tsc -b --pretty false",
     "lint": "eslint .",
-    "format:check": "prettier --check .",
+    "format:check": "prettier --check eslint.config.js package.json src/App.tsx src/main.tsx src/types.ts src/components src/features src/lib/local-db src/lib/sync src/lib/errors.ts src/lib/validation.ts src/lib/supabase-data.ts src/lib/supabase.ts src/lib/database.types.ts src/lib/maintenance.ts src/lib/date.ts src/lib/demo-constants.ts src/lib/demo.ts src/lib/nutrients.ts .github/workflows/ci.yml",
     "preview": "vite preview --host 0.0.0.0",
     "test": "vitest run",
     "test:watch": "vitest"

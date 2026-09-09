@@ -1,9 +1,20 @@
 import { z } from 'zod'
-import type { ActivityLevel, BodyFatCategory, Sex } from '../types'
+import type { ActivityLevel, AnySyncedRecord, BodyFatCategory, Sex } from '../types'
+import { UserFacingError } from './errors'
 
 export const sexSchema = z.enum(['male', 'female'])
 export const activityLevelSchema = z.enum(['low', 'light', 'moderate', 'high', 'athlete'])
 export const bodyFatCategorySchema = z.enum(['very_low', 'athletic', 'fit', 'average', 'high'])
+
+const remoteRecordSchema = z
+  .object({
+    id: z.string().min(1),
+    user_id: z.string().min(1),
+    created_at: z.string().datetime(),
+    updated_at: z.string().datetime(),
+    deleted_at: z.string().datetime().nullable(),
+  })
+  .passthrough()
 
 export const onboardingInputSchema = z.object({
   displayName: z.string().trim().min(2).max(40),
@@ -36,4 +47,11 @@ export function assertFiniteNonNegative(value: number, label: string) {
     throw new Error(`${label} muss eine endliche, nicht negative Zahl sein.`)
   }
   return value
+}
+
+/** Validate the untrusted row before it enters the local write model. */
+export function parseRemoteRecord(value: unknown, userId: string): AnySyncedRecord {
+  const record = remoteRecordSchema.parse(value)
+  if (record.user_id !== userId) throw new UserFacingError('Der Cloud-Datensatz gehört nicht zu deinem Konto.')
+  return record as unknown as AnySyncedRecord
 }

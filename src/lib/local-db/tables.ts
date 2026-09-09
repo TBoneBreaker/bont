@@ -17,8 +17,9 @@ export async function findUserRecord<T extends SyncedTableName>(table: T, userId
 }
 
 export async function findBodyEntry(userId: string, entryDate: string) {
-  return (await db.body_entries.where('entry_date').equals(entryDate).toArray())
-    .find((entry) => entry.user_id === userId)
+  return (await db.body_entries.where('entry_date').equals(entryDate).toArray()).find(
+    (entry) => entry.user_id === userId,
+  )
 }
 
 export function isActiveRecord(record: BaseRecord) {

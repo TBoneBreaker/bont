@@ -69,10 +69,15 @@ export async function softDeleteRecord<T extends SyncedTableName>(table: T, reco
 
 export async function softDeleteRecordsAtomically(writes: RecordWrite[]) {
   const timestamp = now()
-  return saveRecordsAtomically(writes.map((write) => ({
-    ...write,
-    record: { ...write.record, deleted_at: timestamp, updated_at: timestamp },
-  } as RecordWrite)))
+  return saveRecordsAtomically(
+    writes.map(
+      (write) =>
+        ({
+          ...write,
+          record: { ...write.record, deleted_at: timestamp, updated_at: timestamp },
+        }) as RecordWrite,
+    ),
+  )
 }
 
 export async function listRecords<T extends SyncedTableName>(table: T, userId: string, includeDeleted = false) {

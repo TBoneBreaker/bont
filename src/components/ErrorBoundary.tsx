@@ -28,7 +28,9 @@ export class ErrorBoundary extends Component<Props, State> {
         <div className="brand-mark">B</div>
         <div>
           <h1>Etwas ist schiefgelaufen</h1>
-          <p className="muted">Bont konnte diesen Bereich nicht laden. Deine lokal gespeicherten Daten bleiben erhalten.</p>
+          <p className="muted">
+            Bont konnte diesen Bereich nicht laden. Deine lokal gespeicherten Daten bleiben erhalten.
+          </p>
         </div>
         <Button onClick={() => window.location.reload()}>Neu laden</Button>
       </main>

@@ -2,13 +2,7 @@ import { db } from './db'
 import { localDateString } from './date'
 import { DEMO_USER_ID } from './demo-constants'
 import { createBase } from '../types'
-import type {
-  BodyEntry,
-  FoodEntry,
-  MealSlot,
-  Profile,
-  UserSettings,
-} from '../types'
+import type { BodyEntry, FoodEntry, MealSlot, Profile, UserSettings } from '../types'
 
 const dateOffset = (days: number) => {
   const date = new Date()

@@ -15,7 +15,13 @@ interface AuthContext {
 
 export function AuthGate({ demoMode, children }: { demoMode: boolean; children: (context: AuthContext) => ReactNode }) {
   const initialReady = demoMode || !isSupabaseConfigured
-  const [auth, setAuth] = useState<{ ready: boolean; session: Session | null; error: string; recovery: boolean; key: string }>({
+  const [auth, setAuth] = useState<{
+    ready: boolean
+    session: Session | null
+    error: string
+    recovery: boolean
+    key: string
+  }>({
     ready: initialReady,
     session: null,
     error: '',
@@ -27,12 +33,28 @@ export function AuthGate({ demoMode, children }: { demoMode: boolean; children: 
   useEffect(() => {
     if (demoMode || !isSupabaseConfigured) return
     let active = true
-    void supabase.auth.getSession().then(({ data, error }) => {
-      if (!active) return
-      setAuth({ ready: true, session: data.session, error: error ? getUserMessage(error, 'Die Anmeldung konnte nicht geladen werden.') : '', recovery: Boolean(data.session && new URLSearchParams(window.location.search).has('reset')), key })
-    }).catch((error: unknown) => {
-      if (active) setAuth({ ready: true, session: null, error: getUserMessage(error, 'Die Anmeldung konnte nicht geladen werden.'), recovery: false, key })
-    })
+    void supabase.auth
+      .getSession()
+      .then(({ data, error }) => {
+        if (!active) return
+        setAuth({
+          ready: true,
+          session: data.session,
+          error: error ? getUserMessage(error, 'Die Anmeldung konnte nicht geladen werden.') : '',
+          recovery: Boolean(data.session && new URLSearchParams(window.location.search).has('reset')),
+          key,
+        })
+      })
+      .catch((error: unknown) => {
+        if (active)
+          setAuth({
+            ready: true,
+            session: null,
+            error: getUserMessage(error, 'Die Anmeldung konnte nicht geladen werden.'),
+            recovery: false,
+            key,
+          })
+      })
     const { data } = supabase.auth.onAuthStateChange((event, session) => {
       if (active) setAuth({ ready: true, session, error: '', recovery: event === 'PASSWORD_RECOVERY', key })
     })
@@ -43,11 +65,27 @@ export function AuthGate({ demoMode, children }: { demoMode: boolean; children: 
   }, [demoMode, key])
 
   if (!isSupabaseConfigured && !demoMode) {
-    return <main className="center-screen"><div className="brand-mark">B</div><div><h1>Verbindung fehlt</h1><p className="muted">Die Supabase-Umgebungsvariablen sind noch nicht gesetzt.</p></div></main>
+    return (
+      <main className="center-screen">
+        <div className="brand-mark">B</div>
+        <div>
+          <h1>Verbindung fehlt</h1>
+          <p className="muted">Die Supabase-Umgebungsvariablen sind noch nicht gesetzt.</p>
+        </div>
+      </main>
+    )
   }
   if (auth.key !== key || !auth.ready) return <LoadingScreen />
-  if (auth.recovery || (auth.session && new URLSearchParams(window.location.search).has('reset'))) return <PasswordRecoveryScreen />
-  if (!auth.session && !demoMode) return <AuthScreen initialError={auth.error ? 'Die gespeicherte Anmeldung konnte nicht geladen werden. Bitte melde dich erneut an.' : ''} />
+  if (auth.recovery || (auth.session && new URLSearchParams(window.location.search).has('reset')))
+    return <PasswordRecoveryScreen />
+  if (!auth.session && !demoMode)
+    return (
+      <AuthScreen
+        initialError={
+          auth.error ? 'Die gespeicherte Anmeldung konnte nicht geladen werden. Bitte melde dich erneut an.' : ''
+        }
+      />
+    )
 
   return <>{children({ session: auth.session, userId: demoMode ? DEMO_USER_ID : auth.session!.user.id, demoMode })}</>
 }
