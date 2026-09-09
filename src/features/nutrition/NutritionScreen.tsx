@@ -1,7 +1,7 @@
 import { useMemo, useState, type CSSProperties, type FormEvent } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { ChevronDown, ChevronRight, ChevronUp, Database, Info, LoaderCircle, Pencil, Plus, ScanBarcode, Search, Trash2, Utensils } from 'lucide-react'
-import { Button, Card, EmptyState, Field, IconButton, InfoNote, Metric, Modal, ProgressBar, SelectField } from '../../components/ui'
+import { ChevronDown, ChevronRight, ChevronUp, Database, LoaderCircle, Pencil, Plus, ScanBarcode, Search, Trash2, Utensils } from 'lucide-react'
+import { Button, Card, EmptyState, Field, IconButton, InfoNote, Metric, Modal, SelectField } from '../../components/ui'
 import { db, saveRecord, softDeleteRecord } from '../../lib/db'
 import { localDateString } from '../../lib/date'
 import { searchFoods, type FoodPortion, type FoodSearchResult } from '../../lib/food-search'
@@ -9,6 +9,10 @@ import { estimateMaintenance } from '../../lib/maintenance'
 import { getNutrientTarget, nutrientReferences, type NutrientReference } from '../../lib/nutrients'
 import type { FoodEntry, GoalMode, MealSlot, Profile } from '../../types'
 import { createBase } from '../../types'
+import { GoalSettings } from './GoalSettings'
+import { MealList } from './MealList'
+import { MicronutrientOverview } from './MicronutrientOverview'
+import { sumFood } from './nutrition-utils'
 
 const today = localDateString
 
@@ -54,7 +58,6 @@ export function NutritionScreen({ userId, profile }: { userId: string; profile: 
     return result
   }, {}), [todayEntries])
   const availableMicronutrients = useMemo(() => new Set(todayEntries.flatMap((entry) => Object.keys(entry.micronutrients ?? {}))), [todayEntries])
-  const availableMicronutrientCount = nutrientReferences.filter((nutrient) => availableMicronutrients.has(nutrient.key)).length
 
   return (
     <main className="content">
@@ -94,73 +97,12 @@ export function NutritionScreen({ userId, profile }: { userId: string; profile: 
         </button>
       </Card>
 
-      {showMicronutrients && (
-        <Card className="stack micronutrient-card">
-          <div className="section-heading section-heading--inside"><div><span className="eyebrow">Tagesübersicht</span><h2>Mikronährstoffe</h2></div><span className="pill">{availableMicronutrientCount}/{nutrientReferences.length} mit Daten</span></div>
-          <InfoNote>„Keine Daten“ bedeutet, dass der gewählte Produkteintrag diesen Nährstoff nicht enthält – nicht, dass du 0 % aufgenommen hast.</InfoNote>
-          <div className="nutrient-list">
-            {nutrientReferences.map((nutrient) => {
-              const target = getNutrientTarget(nutrient, profile)
-              const consumed = micronutrientTotals[nutrient.key]
-              const isAvailable = availableMicronutrients.has(nutrient.key)
-              const percent = target ? consumed / target * 100 : 0
-              return (
-                <div className={`nutrient-row ${isAvailable ? '' : 'nutrient-row--unknown'}`} key={nutrient.key}>
-                  <button className="nutrient-row__info" onClick={() => setMicroInfo(nutrient)} aria-label={`Information zu ${nutrient.label}`}><Info size={16} /></button>
-                  <div><div className="row row--between"><strong>{nutrient.label}</strong><span>{isAvailable ? `${Math.round(percent)} %` : 'Keine Daten'}</span></div><ProgressBar value={isAvailable ? percent : 0} tone="green" /><span className="tiny muted">{isAvailable ? `${consumed.toFixed(consumed < 10 ? 1 : 0)} von ${target} ${nutrient.unit}` : 'Nicht in den gewählten Produktdaten enthalten'}</span></div>
-                </div>
-              )
-            })}
-          </div>
-          <a className="source-link" href="https://www.dge.de/wissenschaft/referenzwerte/" target="_blank" rel="noreferrer">DGE-Referenzwerte ansehen <ChevronRight size={15} /></a>
-        </Card>
-      )}
+      {showMicronutrients && <MicronutrientOverview profile={profile} totals={micronutrientTotals} available={availableMicronutrients} onInfo={setMicroInfo} />}
 
-      <Card className="stack">
-        <div><span className="eyebrow">Zielrichtung</span><h2>Was ist dein aktuelles Ziel?</h2></div>
-        <div className="segmented">
-          <button aria-pressed={settings?.goal_mode === 'cut'} onClick={() => void updateGoal('cut')}>Defizit</button>
-          <button aria-pressed={settings?.goal_mode === 'maintain'} onClick={() => void updateGoal('maintain')}>Halten</button>
-          <button aria-pressed={settings?.goal_mode === 'bulk'} onClick={() => void updateGoal('bulk')}>Aufbau</button>
-        </div>
-        {settings?.goal_mode !== 'maintain' && (
-          <Field
-            label={`${settings?.goal_mode === 'cut' ? 'Defizit' : 'Überschuss'} in kcal`}
-            type="number"
-            min="0"
-            max="1500"
-            step="50"
-            value={settings?.calorie_adjustment ?? 0}
-            onChange={(event) => void updateAdjustment(Number(event.target.value))}
-          />
-        )}
-        <p className="auth-note">Basis: {maintenance.maintenance ? 'aus deinem Gewichts- und Kalorienverlauf berechnet' : 'vorläufig aus deinen Profildaten geschätzt'}.</p>
-      </Card>
+      <GoalSettings settings={settings} onGoalChange={(mode) => void updateGoal(mode)} onAdjustmentChange={(value) => void updateAdjustment(value)} basis={maintenance.maintenance ? 'aus deinem Gewichts- und Kalorienverlauf berechnet' : 'vorläufig aus deinen Profildaten geschätzt'} />
 
       <div className="section-heading"><h2>Mahlzeiten</h2><Button variant="ghost" onClick={() => setManageMeals(true)}><Pencil size={16} /> Anpassen</Button></div>
-      <div className="stack">
-        {mealSlots.map((meal) => {
-          const foods = todayEntries.filter((entry) => entry.meal_slot_id === meal.id)
-          const mealTotal = sumFood(foods)
-          return (
-            <Card key={meal.id} className="meal-card stack">
-              <div className="card__row">
-                <div><h2>{meal.name}</h2><span className="muted small">{foods.length ? `${Math.round(mealTotal.calories)} kcal · ${mealTotal.protein.toFixed(0)} g Eiweiß` : 'Noch nichts eingetragen'}</span></div>
-                <IconButton label={`${meal.name}: Lebensmittel hinzufügen`} onClick={() => setActiveMeal(meal)}><Plus size={20} /></IconButton>
-              </div>
-              {foods.length > 0 && <div className="food-list">
-                {foods.map((food) => (
-                  <div className="food-row" key={food.id}>
-                    <div><strong>{food.name}</strong><span>{food.brand ? `${food.brand} · ` : ''}{food.amount} {food.unit === 'piece' ? 'Stück' : food.unit} · {Math.round(food.calories)} kcal</span></div>
-                    <IconButton label={`${food.name} entfernen`} onClick={() => void removeFood(food)}><Trash2 size={16} /></IconButton>
-                  </div>
-                ))}
-              </div>}
-              <button className="add-row" onClick={() => setActiveMeal(meal)}><Plus size={17} /> Lebensmittel hinzufügen</button>
-            </Card>
-          )
-        })}
-      </div>
+      <MealList meals={mealSlots} entries={todayEntries} onAdd={setActiveMeal} onRemove={(entry) => void removeFood(entry)} />
 
       <FoodSearchModal
         open={Boolean(activeMeal)}
@@ -510,11 +452,3 @@ function MealManager({ open, meals, userId, onClose }: { open: boolean; meals: M
   )
 }
 
-function sumFood(entries: FoodEntry[]) {
-  return entries.reduce((sum, entry) => ({
-    calories: sum.calories + entry.calories,
-    protein: sum.protein + entry.protein_g,
-    carbs: sum.carbs + entry.carbs_g,
-    fat: sum.fat + entry.fat_g,
-  }), { calories: 0, protein: 0, carbs: 0, fat: 0 })
-}

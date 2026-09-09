@@ -1,181 +1,26 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
-import type { Session } from '@supabase/supabase-js'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { Activity, Dumbbell, Settings, Utensils } from 'lucide-react'
-import { Button, IconButton, LoadingScreen } from './components/ui'
-import { AuthScreen } from './features/auth/AuthScreen'
+import { AuthGate } from './features/app/AuthGate'
+import { AppShell } from './features/app/AppShell'
+import { SyncProvider } from './features/app/SyncProvider'
 import { Onboarding } from './features/onboarding/Onboarding'
-import { db, syncUser } from './lib/db'
-import { DEMO_USER_ID } from './lib/demo-constants'
-import { seedDemoData } from './lib/demo'
-import { isSupabaseConfigured, supabase } from './lib/supabase'
-import type { ThemeMode } from './types'
-
-type Tab = 'nutrition' | 'body' | 'training'
-
-const BodyScreen = lazy(() => import('./features/body/BodyScreen').then((module) => ({ default: module.BodyScreen })))
-const NutritionScreen = lazy(() => import('./features/nutrition/NutritionScreen').then((module) => ({ default: module.NutritionScreen })))
-const TrainingScreen = lazy(() => import('./features/training/TrainingScreen').then((module) => ({ default: module.TrainingScreen })))
-const SettingsPanel = lazy(() => import('./features/settings/SettingsPanel').then((module) => ({ default: module.SettingsPanel })))
+import { db } from './lib/db'
 
 export function App() {
   const demoMode = window.location.pathname === '/demo' || new URLSearchParams(window.location.search).has('demo')
-  const [session, setSession] = useState<Session | null>(null)
-  const [authReady, setAuthReady] = useState(false)
-  const [authError, setAuthError] = useState('')
-  const [initialSyncReady, setInitialSyncReady] = useState(false)
-  const [initialSyncError, setInitialSyncError] = useState('')
-  const [syncAttempt, setSyncAttempt] = useState(0)
-  const [tab, setTab] = useState<Tab>('training')
-  const [settingsOpen, setSettingsOpen] = useState(false)
-  const [online, setOnline] = useState(navigator.onLine)
-  const userId = demoMode ? DEMO_USER_ID : session?.user.id
-  const profile = useLiveQuery(
-    () => userId ? db.profiles.where('user_id').equals(userId).first() : undefined,
-    [userId],
-  )
-  const settings = useLiveQuery(
-    () => userId ? db.user_settings.where('user_id').equals(userId).first() : undefined,
-    [userId],
-  )
-  const pending = useLiveQuery(async () => userId
-    ? (await db.outbox.toArray()).filter((item) => item.payload.user_id === userId).length
-    : 0, [userId], 0)
-
-  useEffect(() => {
-    if (demoMode) {
-      setAuthReady(true)
-      return
-    }
-    if (!isSupabaseConfigured) {
-      setAuthReady(true)
-      return
-    }
-    void supabase.auth.getSession().then(({ data, error }) => {
-      setSession(data.session)
-      setAuthError(error?.message ?? '')
-      setAuthReady(true)
-    }).catch((error: unknown) => {
-      setSession(null)
-      setAuthError(error instanceof Error ? error.message : 'Die Anmeldung konnte nicht wiederhergestellt werden.')
-      setAuthReady(true)
-    })
-    const { data } = supabase.auth.onAuthStateChange((_event, nextSession) => {
-      setSession(nextSession)
-      setAuthError('')
-      setAuthReady(true)
-    })
-    return () => data.subscription.unsubscribe()
-  }, [demoMode])
-
-  useEffect(() => {
-    if (!userId) {
-      setInitialSyncReady(false)
-      setInitialSyncError('')
-      return
-    }
-    if (demoMode) {
-      let active = true
-      void seedDemoData().then(() => active && setInitialSyncReady(true))
-      return () => { active = false }
-    }
-    let active = true
-    setInitialSyncReady(false)
-    setInitialSyncError('')
-    void syncUser(userId, { full: true }).then(async (result) => {
-      if (!active) return
-      const cachedProfile = await db.profiles.where('user_id').equals(userId).first()
-      if (result.error && !cachedProfile) {
-        setInitialSyncError('Deine Cloud-Daten konnten nicht geladen werden. Prüfe deine Verbindung und versuche es erneut.')
-        return
-      }
-      if (!navigator.onLine && !cachedProfile) {
-        setInitialSyncError('Für die erste Einrichtung auf diesem Gerät wird kurz eine Internetverbindung benötigt.')
-        return
-      }
-      setInitialSyncReady(true)
-    })
-    const sync = () => void syncUser(userId)
-    const onlineHandler = () => { setOnline(true); sync() }
-    const offlineHandler = () => setOnline(false)
-    const visibilityHandler = () => document.visibilityState === 'visible' && sync()
-    window.addEventListener('online', onlineHandler)
-    window.addEventListener('offline', offlineHandler)
-    document.addEventListener('visibilitychange', visibilityHandler)
-    const interval = window.setInterval(sync, 10_000)
-    return () => {
-      active = false
-      window.removeEventListener('online', onlineHandler)
-      window.removeEventListener('offline', offlineHandler)
-      document.removeEventListener('visibilitychange', visibilityHandler)
-      window.clearInterval(interval)
-    }
-  }, [demoMode, syncAttempt, userId])
-
-  const resolvedTheme = useResolvedTheme(settings?.theme ?? 'system')
-
-  if (!isSupabaseConfigured && !demoMode) {
-    return <div data-theme={resolvedTheme}><main className="center-screen"><div className="brand-mark">B</div><div><h1>Verbindung fehlt</h1><p className="muted">Die Supabase-Umgebungsvariablen sind noch nicht gesetzt.</p></div></main></div>
-  }
-  if (!authReady) return <div data-theme={resolvedTheme}><LoadingScreen /></div>
-  if (!session && !demoMode) return <div data-theme={resolvedTheme}><AuthScreen initialError={authError ? 'Die gespeicherte Anmeldung konnte nicht geladen werden. Bitte melde dich erneut an.' : ''} /></div>
-  if (initialSyncError) return (
-    <div data-theme={resolvedTheme}>
-      <main className="center-screen">
-        <div className="brand-mark">B</div>
-        <div><h1>Abgleich nicht möglich</h1><p className="muted">{initialSyncError}</p></div>
-        <Button onClick={() => setSyncAttempt((attempt) => attempt + 1)}>Erneut versuchen</Button>
-      </main>
-    </div>
-  )
-  if (!initialSyncReady) return <div data-theme={resolvedTheme}><LoadingScreen label="Deine Daten werden geladen" /></div>
-  if (!profile?.onboarding_completed) return <div data-theme={resolvedTheme}><Onboarding userId={userId!} onComplete={() => demoMode ? undefined : void syncUser(userId!)} /></div>
-
-  return (
-    <div className="app" data-theme={resolvedTheme}>
-      <div className="app-shell">
-        <header className="topbar">
-          <span className="wordmark">bont</span>
-          <div className="topbar__actions">
-            {demoMode && <span className="pill">Demo</span>}
-            <span className={`connection-dot ${demoMode || !online ? 'connection-dot--offline' : ''}`} title={demoMode ? 'Demo · nur lokal' : online ? pending ? `${pending} Änderungen warten` : 'Synchronisiert' : 'Offline gespeichert'} />
-            <IconButton label="Einstellungen öffnen" onClick={() => setSettingsOpen(true)}><Settings size={20} /></IconButton>
-          </div>
-        </header>
-        <Suspense fallback={<LoadingScreen label="Bereich wird geladen" />}>
-          {tab === 'nutrition' && <NutritionScreen userId={userId!} profile={profile} />}
-          {tab === 'body' && <BodyScreen userId={userId!} />}
-          {tab === 'training' && <TrainingScreen userId={userId!} displayName={profile.display_name} />}
-        </Suspense>
-      </div>
-
-      <nav className="bottom-nav" aria-label="Hauptnavigation">
-        <button aria-current={tab === 'nutrition' ? 'page' : undefined} onClick={() => setTab('nutrition')}><Utensils size={20} /><span>Ernährung</span></button>
-        <button aria-current={tab === 'body' ? 'page' : undefined} onClick={() => setTab('body')}><Activity size={20} /><span>Körperanalyse</span></button>
-        <button aria-current={tab === 'training' ? 'page' : undefined} onClick={() => setTab('training')}><Dumbbell size={20} /><span>Training</span></button>
-      </nav>
-
-      <Suspense fallback={null}>
-        <SettingsPanel
-          open={settingsOpen}
-          profile={profile}
-          online={online}
-          demo={demoMode}
-          onClose={() => setSettingsOpen(false)}
-          onSignedOut={() => setSettingsOpen(false)}
-        />
-      </Suspense>
-    </div>
-  )
+  return <AuthGate demoMode={demoMode}>{({ userId, demoMode: isDemo }) => <AuthenticatedApp userId={userId} demoMode={isDemo} />}</AuthGate>
 }
 
-function useResolvedTheme(theme: ThemeMode) {
-  const [systemDark, setSystemDark] = useState(() => window.matchMedia('(prefers-color-scheme: dark)').matches)
-  useEffect(() => {
-    const media = window.matchMedia('(prefers-color-scheme: dark)')
-    const update = () => setSystemDark(media.matches)
-    media.addEventListener('change', update)
-    return () => media.removeEventListener('change', update)
-  }, [])
-  return useMemo(() => theme === 'system' ? systemDark ? 'dark' : 'light' : theme, [theme, systemDark])
+function AuthenticatedApp({ userId, demoMode }: { userId: string; demoMode: boolean }) {
+  const profile = useLiveQuery(
+    () => db.profiles.where('user_id').equals(userId).first(),
+    [userId],
+  )
+
+  return (
+    <SyncProvider userId={userId} demoMode={demoMode}>
+      {() => !profile?.onboarding_completed
+        ? <div data-theme="light"><Onboarding userId={userId} onComplete={() => undefined} /></div>
+        : <AppShell userId={userId} profile={profile} demoMode={demoMode} />}
+    </SyncProvider>
+  )
 }
