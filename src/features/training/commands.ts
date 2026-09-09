@@ -1,6 +1,8 @@
 import { UserFacingError } from '../../lib/errors'
 import { listRecords, saveRecord, saveRecordsAtomically } from '../../lib/local-db/local-repository'
 import { dateAtNoon } from '../../lib/date'
+import { findUserRecord } from '../../lib/local-db/tables'
+import { workoutEntryDate } from './session-date'
 import type { Exercise, TrainingDay, TrainingPlan, WorkoutSession, WorkoutSet, RecordWrite } from '../../types'
 import { createBase } from '../../types'
 
@@ -176,21 +178,16 @@ export async function startWorkout({
 }) {
   assertOwned(userId, [plan, day, ...exercises])
   if (day.plan_id !== plan.id) throw new UserFacingError('Der Trainingstag gehört nicht zu diesem Plan.')
-  const active = (await listRecords('workout_sessions', userId)).find(
-    (session) => session.training_day_id === day.id && session.status === 'active',
-  )
-  if (active) return active
-  const completedSessions = (await listRecords('workout_sessions', userId))
-    .filter((session) => session.training_day_id === day.id && session.status === 'completed')
-    .sort((a, b) => b.started_at.localeCompare(a.started_at))
-  const previousSessionIds = new Set(completedSessions.map((session) => session.id))
-  const previousSets = (await listRecords('workout_sets', userId)).filter((set) =>
-    previousSessionIds.has(set.session_id),
-  )
+  const sessions = (await listRecords('workout_sessions', userId))
+    .filter((session) => session.training_day_id === day.id && workoutEntryDate(session) === workoutDate)
+    .sort((a, b) => b.updated_at.localeCompare(a.updated_at))
+  const existing = sessions[0]
+  if (existing) return existing
   const session: WorkoutSession = {
     ...createBase(userId),
     training_plan_id: plan.id,
     training_day_id: day.id,
+    entry_date: workoutDate,
     started_at: dateAtNoon(workoutDate),
     completed_at: null,
     status: 'active',
@@ -198,14 +195,6 @@ export async function startWorkout({
   const writes: RecordWrite[] = [{ table: 'workout_sessions', record: session }]
   for (const exercise of [...exercises].sort((a, b) => a.order_index - b.order_index)) {
     for (let index = 0; index < exercise.target_sets; index += 1) {
-      const previous = completedSessions
-        .map((previousSession) =>
-          previousSets.find(
-            (set) =>
-              set.session_id === previousSession.id && set.exercise_id === exercise.id && set.set_number === index + 1,
-          ),
-        )
-        .find(Boolean)
       writes.push({
         table: 'workout_sets',
         record: {
@@ -213,8 +202,8 @@ export async function startWorkout({
           session_id: session.id,
           exercise_id: exercise.id,
           set_number: index + 1,
-          weight_kg: previous?.weight_kg ?? null,
-          reps: previous?.reps ?? null,
+          weight_kg: null,
+          reps: null,
           is_completed: false,
         },
       })
@@ -232,7 +221,9 @@ export async function updateWorkoutSet(userId: string, set: WorkoutSet, key: 'we
     (!Number.isFinite(value) || value < 0 || (key === 'reps' && value > 100) || (key === 'weight_kg' && value > 500))
   )
     throw new UserFacingError('Bitte trage einen gültigen Satzwert ein.')
-  return saveRecord('workout_sets', { ...set, [key]: value })
+  const current = await findUserRecord('workout_sets', userId, set.id)
+  if (!current) throw new UserFacingError('Dieser Satz ist nicht mehr verfügbar.')
+  return saveRecord('workout_sets', { ...current, [key]: value })
 }
 
 export async function completeExercise(userId: string, sets: WorkoutSet[], completed: boolean) {
@@ -245,7 +236,14 @@ export async function completeExercise(userId: string, sets: WorkoutSet[], compl
 
 export function changeWorkoutDate(userId: string, session: WorkoutSession, value: string) {
   assertOwned(userId, [session])
-  return saveRecord('workout_sessions', { ...session, started_at: dateAtNoon(value) })
+  return listRecords('workout_sessions', userId).then((sessions) => {
+    const duplicate = sessions.find(
+      (item) =>
+        item.id !== session.id && item.training_day_id === session.training_day_id && workoutEntryDate(item) === value,
+    )
+    if (duplicate) throw new UserFacingError('Für diesen Trainingstag existiert an diesem Datum bereits ein Eintrag.')
+    return saveRecord('workout_sessions', { ...session, entry_date: value, started_at: dateAtNoon(value) })
+  })
 }
 
 export async function finishWorkout(userId: string, session: WorkoutSession) {

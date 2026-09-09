@@ -1,14 +1,12 @@
 import { useMemo, useState } from 'react'
 import { BarChart3, CalendarDays, Check, CheckCircle2, Circle, RotateCcw } from 'lucide-react'
 import { Button, Card, IconButton, NumberStepper, ScreenHeader } from '../../components/ui'
-import { localDateString } from '../../lib/date'
 import { getUserMessage } from '../../lib/errors'
 import type { Exercise, WorkoutSet } from '../../types'
 import { changeWorkoutDate, completeExercise, finishWorkout, updateWorkoutSet } from './commands'
 import { ExerciseProgressModal } from './ExerciseProgressModal'
+import { workoutEntryDate } from './session-date'
 import { useWorkoutData } from './use-workout-data'
-
-const today = localDateString
 
 export function WorkoutView({ userId, sessionId, onExit }: { userId: string; sessionId: string; onExit: () => void }) {
   const [selectedExerciseId, setSelectedExerciseId] = useState<string | null>(null)
@@ -110,7 +108,7 @@ export function WorkoutView({ userId, sessionId, onExit }: { userId: string; ses
     <div className="subview workout-shell">
       <ScreenHeader
         title={day.name}
-        eyebrow="Laufendes Training"
+        eyebrow="Trainingslog"
         onBack={onExit}
         action={
           <span className="pill">
@@ -124,14 +122,13 @@ export function WorkoutView({ userId, sessionId, onExit }: { userId: string; ses
             <CalendarDays size={19} />
             <div>
               <span>Trainingsdatum</span>
-              <strong>{formatLongDate(session.started_at.slice(0, 10))}</strong>
+              <strong>{formatLongDate(workoutEntryDate(session))}</strong>
             </div>
           </div>
           <input
             aria-label="Trainingsdatum ändern"
             type="date"
-            value={session.started_at.slice(0, 10)}
-            max={today()}
+            value={workoutEntryDate(session)}
             onChange={(event) => void changeDate(event.target.value)}
           />
         </Card>
@@ -236,12 +233,14 @@ export function WorkoutView({ userId, sessionId, onExit }: { userId: string; ses
           })}
         </div>
 
-        <Button full disabled={!allDone} onClick={() => void completeWorkout()}>
-          <CheckCircle2 size={19} /> {allDone ? `${day.name} abschließen` : 'Training abschließen'}
-        </Button>
+        {allDone && (
+          <Button full onClick={() => void completeWorkout()}>
+            <CheckCircle2 size={19} /> Als abgeschlossen markieren (optional)
+          </Button>
+        )}
         <p className="auth-note">
-          Du kannst diese Ansicht jederzeit verlassen. Alle Eingaben und das laufende Training bleiben lokal
-          gespeichert.
+          Du kannst diese Ansicht jederzeit verlassen. Alle Eingaben werden sofort lokal gespeichert; ein Trainingstag
+          bleibt auch ohne formalen Abschluss gültig.
         </p>
       </main>
       <ExerciseProgressModal

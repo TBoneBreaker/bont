@@ -34,6 +34,12 @@ export interface UserSettings extends BaseRecord {
   preliminary_maintenance: number | null
 }
 
+export interface GoalSettingsHistory extends BaseRecord {
+  effective_from: string
+  goal_mode: GoalMode
+  calorie_adjustment: number
+}
+
 export interface TrainingPlan extends BaseRecord {
   name: string
   split_size: number
@@ -58,6 +64,7 @@ export interface Exercise extends BaseRecord {
 export interface WorkoutSession extends BaseRecord {
   training_plan_id: string
   training_day_id: string
+  entry_date: string
   started_at: string
   completed_at: string | null
   status: 'active' | 'completed'
@@ -107,6 +114,7 @@ export interface FoodEntry extends BaseRecord {
 export type SyncedRecordMap = {
   profiles: Profile
   user_settings: UserSettings
+  goal_settings_history: GoalSettingsHistory
   training_plans: TrainingPlan
   training_days: TrainingDay
   exercises: Exercise
@@ -147,6 +155,7 @@ export interface SyncMeta {
 export const syncedTables: SyncedTableName[] = [
   'profiles',
   'user_settings',
+  'goal_settings_history',
   'training_plans',
   'training_days',
   'exercises',

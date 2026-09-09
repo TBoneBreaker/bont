@@ -14,11 +14,12 @@ const byDate = (a: BodyEntry, b: BodyEntry) => a.entry_date.localeCompare(b.entr
 type CompleteBodyEntry = BodyEntry & { weight_kg: number; calories: number }
 type WeightBodyEntry = BodyEntry & { weight_kg: number }
 
-export function estimateMaintenance(entries: BodyEntry[]): MaintenanceEstimate {
+export function estimateMaintenance(entries: BodyEntry[], asOfDate?: string): MaintenanceEstimate {
   const usable = entries
     .filter(
       (entry): entry is CompleteBodyEntry =>
         !entry.deleted_at &&
+        (!asOfDate || entry.entry_date <= asOfDate) &&
         entry.weight_kg !== null &&
         entry.weight_kg > 0 &&
         entry.calories !== null &&
@@ -67,9 +68,15 @@ export function estimateMaintenance(entries: BodyEntry[]): MaintenanceEstimate {
   }
 }
 
-export function weeklyAverages(entries: BodyEntry[]) {
+export function weeklyAverages(entries: BodyEntry[], asOfDate?: string) {
   const usable = entries
-    .filter((entry): entry is WeightBodyEntry => !entry.deleted_at && entry.weight_kg !== null && entry.weight_kg > 0)
+    .filter(
+      (entry): entry is WeightBodyEntry =>
+        !entry.deleted_at &&
+        (!asOfDate || entry.entry_date <= asOfDate) &&
+        entry.weight_kg !== null &&
+        entry.weight_kg > 0,
+    )
     .sort(byDate)
   const current = usable.slice(-7)
   const previous = usable.slice(-14, -7)

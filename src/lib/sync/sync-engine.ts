@@ -1,4 +1,11 @@
-import { syncedTables, type BodyEntry, type OutboxItem, type SyncedRecord, type SyncedTableName } from '../../types'
+import {
+  syncedTables,
+  type BodyEntry,
+  type GoalSettingsHistory,
+  type OutboxItem,
+  type SyncedRecord,
+  type SyncedTableName,
+} from '../../types'
 import { getUserMessage, logError } from '../errors'
 import { putRemoteRecord } from '../local-db/local-repository'
 import { db, getSyncedTable } from '../local-db/schema'
@@ -13,7 +20,12 @@ import {
   recoverProcessing,
 } from './outbox'
 import { publishSyncResult, publishSyncStatus, registerSyncRunner } from './sync-status'
-import { fetchSyncedPage, findRemoteBodyEntry, upsertSyncedRecord } from '../supabase-data'
+import {
+  fetchSyncedPage,
+  findRemoteBodyEntry,
+  findRemoteGoalSettingsHistory,
+  upsertSyncedRecord,
+} from '../supabase-data'
 
 export interface SyncResult {
   pushed: number
@@ -44,9 +56,21 @@ async function pushItem(userId: string, item: OutboxItem) {
     conflictTarget = 'user_id,entry_date'
   }
 
+  if (item.table === 'goal_settings_history') {
+    const goalPayload = item.payload as GoalSettingsHistory
+    const { data: remote, error } = await findRemoteGoalSettingsHistory(userId, goalPayload.effective_from)
+    if (error) throw error
+    if (remote) {
+      const remoteGoal = remote as GoalSettingsHistory
+      replacedLocalId = goalPayload.id !== remoteGoal.id ? goalPayload.id : null
+      payload = { ...remoteGoal, ...goalPayload, id: remoteGoal.id }
+    }
+    conflictTarget = 'user_id,effective_from'
+  }
+
   const { data: saved, error } = await upsertSyncedRecord(item.table, payload, conflictTarget)
   if (error) throw error
-  if (replacedLocalId) await db.body_entries.delete(replacedLocalId)
+  if (replacedLocalId) await getSyncedTable(item.table).delete(replacedLocalId)
   if (saved && saved.user_id === userId) {
     await putRemoteRecord(item.table, saved as SyncedRecord<typeof item.table>)
   }

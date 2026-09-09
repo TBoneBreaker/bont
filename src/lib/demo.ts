@@ -2,7 +2,7 @@ import { db } from './db'
 import { localDateString } from './date'
 import { DEMO_USER_ID } from './demo-constants'
 import { createBase } from '../types'
-import type { BodyEntry, FoodEntry, MealSlot, Profile, UserSettings } from '../types'
+import type { BodyEntry, FoodEntry, GoalSettingsHistory, MealSlot, Profile, UserSettings } from '../types'
 
 const dateOffset = (days: number) => {
   const date = new Date()
@@ -18,11 +18,12 @@ export function seedDemoData() {
 }
 
 async function runSeedDemoData() {
-  const [existingProfile, existingFood] = await Promise.all([
+  const [existingProfile, existingFood, existingGoalHistory] = await Promise.all([
     db.profiles.where('user_id').equals(DEMO_USER_ID).first(),
     db.food_entries.get('demo-food-skyr'),
+    db.goal_settings_history.get('demo-goal-history'),
   ])
-  if (existingProfile && existingFood) return
+  if (existingProfile && existingFood && existingGoalHistory) return
 
   const profile: Profile = {
     ...createBase(DEMO_USER_ID, 'demo-profile'),
@@ -55,6 +56,12 @@ async function runSeedDemoData() {
     order_index: index,
   }))
   const today = dateOffset(0)
+  const goalHistory: GoalSettingsHistory = {
+    ...createBase(DEMO_USER_ID, 'demo-goal-history'),
+    effective_from: dateOffset(-13),
+    goal_mode: settings.goal_mode,
+    calorie_adjustment: settings.calorie_adjustment,
+  }
   const foods: FoodEntry[] = [
     {
       ...createBase(DEMO_USER_ID, 'demo-food-skyr'),
@@ -102,6 +109,7 @@ async function runSeedDemoData() {
 
   await db.profiles.put(profile)
   await db.user_settings.put(settings)
+  await db.goal_settings_history.put(goalHistory)
   await db.body_entries.bulkPut(bodyEntries)
   await db.meal_slots.bulkPut(meals)
   await db.food_entries.bulkPut(foods)

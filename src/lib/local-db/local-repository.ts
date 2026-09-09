@@ -8,6 +8,7 @@ import { listUserRecords } from './tables'
 const tableObjects = [
   db.profiles,
   db.user_settings,
+  db.goal_settings_history,
   db.training_plans,
   db.training_days,
   db.exercises,

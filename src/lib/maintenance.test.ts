@@ -40,7 +40,22 @@ describe('maintenance estimation', () => {
     expect(weeklyAverages(rows).change).toBeCloseTo(0.2)
   })
 
+  it('can calculate an historical cutoff without using future rows', () => {
+    const rows = Array.from({ length: 14 }, (_, index) => entry(index + 1, 90, 2400))
+    const withFuture = [...rows, { ...entry(20, 90, 6000), id: 'future' }]
+    expect(estimateMaintenance(withFuture, '2026-09-14').maintenance).toBe(2400)
+    expect(weeklyAverages(withFuture, '2026-09-14').current).toBe(90)
+  })
+
   it('creates a plausible preliminary estimate', () => {
-    expect(preliminaryMaintenance({ sex: 'male', birthDate: '2005-09-26', heightCm: 193, weightKg: 90, activityLevel: 'high' })).toBeGreaterThan(3000)
+    expect(
+      preliminaryMaintenance({
+        sex: 'male',
+        birthDate: '2005-09-26',
+        heightCm: 193,
+        weightKg: 90,
+        activityLevel: 'high',
+      }),
+    ).toBeGreaterThan(3000)
   })
 })

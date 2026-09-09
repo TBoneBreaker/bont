@@ -1,6 +1,7 @@
 import { BarChart3 } from 'lucide-react'
 import { EmptyState, Modal } from '../../components/ui'
 import type { Exercise, WorkoutSession, WorkoutSet } from '../../types'
+import { workoutEntryDate } from './session-date'
 import { useExerciseProgressData } from './use-workout-data'
 
 export function ExerciseProgressModal({
@@ -35,7 +36,7 @@ export function ExerciseProgressModal({
                 <div className="history-row" key={session.id}>
                   <span>
                     {new Intl.DateTimeFormat('de-DE', { day: '2-digit', month: '2-digit', year: '2-digit' }).format(
-                      new Date(session.started_at),
+                      new Date(`${workoutEntryDate(session)}T12:00:00`),
                     )}
                   </span>
                   <strong>{sessionSets.map((set) => `${set.weight_kg} kg × ${set.reps}`).join(' · ')}</strong>

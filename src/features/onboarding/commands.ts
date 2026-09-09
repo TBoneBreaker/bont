@@ -2,7 +2,7 @@ import { preliminaryMaintenance } from '../../lib/maintenance'
 import { localDateString } from '../../lib/date'
 import { saveRecordsAtomically } from '../../lib/local-db/local-repository'
 import { onboardingInputSchema, type OnboardingInput } from '../../lib/validation'
-import type { BodyEntry, MealSlot, Profile, RecordWrite, UserSettings } from '../../types'
+import type { BodyEntry, GoalSettingsHistory, MealSlot, Profile, RecordWrite, UserSettings } from '../../types'
 import { createBase, newId } from '../../types'
 
 export async function completeOnboarding(userId: string, input: OnboardingInput) {
@@ -43,9 +43,16 @@ export async function completeOnboarding(userId: string, input: OnboardingInput)
     calories: null,
     steps: null,
   }
+  const goalHistory: GoalSettingsHistory = {
+    ...createBase(userId),
+    effective_from: body.entry_date,
+    goal_mode: settings.goal_mode,
+    calorie_adjustment: settings.calorie_adjustment,
+  }
   const writes: RecordWrite[] = [
     { table: 'profiles', record: profile },
     { table: 'user_settings', record: settings },
+    { table: 'goal_settings_history', record: goalHistory },
     ...meals.map((record) => ({ table: 'meal_slots' as const, record })),
     { table: 'body_entries', record: body },
   ]

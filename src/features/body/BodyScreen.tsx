@@ -1,17 +1,18 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { CalendarDays, Check, Footprints, Gauge, Plus, Scale, Sparkles, Utensils } from 'lucide-react'
+import { CalendarDays, Check, Footprints, Gauge, Pencil, Plus, Scale, Sparkles, Trash2, Utensils } from 'lucide-react'
 import { Button, Card, Field, Metric, Modal, NumberStepper, ProgressBar } from '../../components/ui'
 import { useBodyData } from './use-body-data'
 import { getUserMessage } from '../../lib/errors'
 import { localDateString } from '../../lib/date'
 import { estimateMaintenance, weeklyAverages } from '../../lib/maintenance'
-import type { BodyEntry } from '../../types'
+import { calorieTargetForDate } from '../../lib/calorie-target'
 import { saveBodyMetric, type BodyMetric } from './commands'
+import { calculateNiceAxis, formatAxisTick } from './nice-axis'
 
 const today = localDateString
 
 export function BodyScreen({ userId }: { userId: string }) {
-  const { entries, settings } = useBodyData(userId)
+  const { entries, settings, goalHistory } = useBodyData(userId)
   const [entryOpen, setEntryOpen] = useState(false)
   const [entryDate, setEntryDate] = useState(today())
   const [weight, setWeight] = useState('')
@@ -20,6 +21,7 @@ export function BodyScreen({ userId }: { userId: string }) {
   const [savedMetric, setSavedMetric] = useState<BodyMetric | null>(null)
   const [metricError, setMetricError] = useState('')
   const [savingMetric, setSavingMetric] = useState<BodyMetric | null>(null)
+  const [selectedPoint, setSelectedPoint] = useState<{ metric: BodyMetric; date: string; value: number } | null>(null)
 
   const existing = entries.find((entry) => entry.entry_date === entryDate)
 
@@ -37,32 +39,38 @@ export function BodyScreen({ userId }: { userId: string }) {
     setSteps(String(selected?.steps ?? previousSteps ?? ''))
   }
 
-  const estimate = useMemo(() => estimateMaintenance(entries), [entries])
-  const weeks = useMemo(() => weeklyAverages(entries), [entries])
-  const completeDays = entries.filter(
+  const todayDate = today()
+  const analysisEntries = useMemo(() => entries.filter((entry) => entry.entry_date <= todayDate), [entries, todayDate])
+  const estimate = useMemo(() => estimateMaintenance(analysisEntries, todayDate), [analysisEntries, todayDate])
+  const weeks = useMemo(() => weeklyAverages(analysisEntries, todayDate), [analysisEntries, todayDate])
+  const completeDays = analysisEntries.filter(
     (entry) => entry.weight_kg !== null && entry.weight_kg > 0 && entry.calories !== null && entry.calories > 0,
   ).length
   const maintenance = estimate.maintenance ?? settings?.preliminary_maintenance ?? null
-  const todayCalories = entries.find((entry) => entry.entry_date === today())?.calories ?? null
+  const todayCalories = entries.find((entry) => entry.entry_date === todayDate)?.calories ?? null
   const balance = maintenance !== null && todayCalories !== null ? Math.round(todayCalories - maintenance) : null
 
   const chartData = useMemo(
     () => ({
       calories: entries
-        .filter((entry): entry is BodyEntry & { calories: number } => entry.calories !== null)
-        .map((entry) => ({ date: entry.entry_date, value: entry.calories! })),
+        .filter((entry) => entry.calories !== null)
+        .map((entry) => ({
+          date: entry.entry_date,
+          value: entry.calories!,
+          target: calorieTargetForDate({ date: entry.entry_date, entries, settings, history: goalHistory }),
+        })),
       steps: entries
-        .filter((entry): entry is BodyEntry & { steps: number } => entry.steps !== null)
+        .filter((entry) => entry.steps !== null)
         .map((entry) => ({ date: entry.entry_date, value: entry.steps! })),
       weight: entries
-        .filter((entry): entry is BodyEntry & { weight_kg: number } => entry.weight_kg !== null)
+        .filter((entry) => entry.weight_kg !== null)
         .map((entry) => ({ date: entry.entry_date, value: entry.weight_kg! })),
     }),
-    [entries],
+    [entries, goalHistory, settings],
   )
 
-  function openEntry() {
-    const nextDate = today()
+  function openEntry(date = todayDate) {
+    const nextDate = date
     setEntryDate(nextDate)
     hydrateEntry(nextDate)
     setSavedMetric(null)
@@ -92,19 +100,39 @@ export function BodyScreen({ userId }: { userId: string }) {
     }
   }
 
-  async function clearMetric(metric: BodyMetric) {
+  async function clearMetric(metric: BodyMetric, date = entryDate) {
     setSavingMetric(metric)
     setMetricError('')
+    let success = false
     try {
-      await saveBodyMetric({ userId, entryDate, metric, value: null })
-      if (metric === 'weight_kg') setWeight('')
-      if (metric === 'calories') setCalories('')
-      if (metric === 'steps') setSteps('')
+      await saveBodyMetric({ userId, entryDate: date, metric, value: null })
+      if (date === entryDate) {
+        if (metric === 'weight_kg') setWeight('')
+        if (metric === 'calories') setCalories('')
+        if (metric === 'steps') setSteps('')
+      }
+      success = true
     } catch (error) {
       setMetricError(getUserMessage(error, 'Der Körperwert konnte nicht gelöscht werden.'))
     } finally {
       setSavingMetric(null)
     }
+    return success
+  }
+
+  async function deleteSelectedPoint() {
+    if (!selectedPoint) return
+    try {
+      if (await clearMetric(selectedPoint.metric, selectedPoint.date)) setSelectedPoint(null)
+    } catch {
+      // The detailed error is shown in the editor, where it can be acted on.
+    }
+  }
+
+  function editSelectedPoint() {
+    if (!selectedPoint) return
+    openEntry(selectedPoint.date)
+    setSelectedPoint(null)
   }
 
   return (
@@ -114,7 +142,7 @@ export function BodyScreen({ userId }: { userId: string }) {
           <span className="eyebrow">Körperanalyse</span>
           <h1>Deine Entwicklung auf einen Blick.</h1>
         </div>
-        <button className="quick-add" onClick={openEntry} aria-label="Körperwerte eintragen">
+        <button className="quick-add" onClick={() => openEntry()} aria-label="Körperwerte eintragen">
           <Plus size={22} />
         </button>
       </div>
@@ -123,26 +151,33 @@ export function BodyScreen({ userId }: { userId: string }) {
         <MetricChart
           icon={<Utensils size={18} />}
           label="Kalorien"
-          values={chartData.calories}
+          values={chartData.calories.map(({ date, value }) => ({ date, value }))}
+          secondaryValues={chartData.calories
+            .filter((point): point is { date: string; value: number; target: number } => point.target !== null)
+            .map(({ date, target }) => ({ date, value: target }))}
+          secondaryLabel="Soll"
+          metric="calories"
           tone="orange"
           format={(value) => `${Math.round(value).toLocaleString('de-DE')} kcal`}
-          formatAxis={(value) => compactNumber(value)}
+          onPointSelect={(point) => setSelectedPoint({ metric: 'calories', ...point })}
         />
         <MetricChart
           icon={<Footprints size={18} />}
           label="Schritte"
           values={chartData.steps}
+          metric="steps"
           tone="cyan"
           format={(value) => Math.round(value).toLocaleString('de-DE')}
-          formatAxis={(value) => compactNumber(value)}
+          onPointSelect={(point) => setSelectedPoint({ metric: 'steps', ...point })}
         />
         <MetricChart
           icon={<Scale size={18} />}
           label="Gewicht"
           values={chartData.weight}
+          metric="weight"
           tone="violet"
           format={(value) => `${value.toLocaleString('de-DE', { maximumFractionDigits: 1 })} kg`}
-          formatAxis={(value) => value.toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}
+          onPointSelect={(point) => setSelectedPoint({ metric: 'weight_kg', ...point })}
         />
       </div>
 
@@ -215,6 +250,34 @@ export function BodyScreen({ userId }: { userId: string }) {
         )}
       </Card>
 
+      <Modal
+        open={Boolean(selectedPoint)}
+        title={
+          selectedPoint ? `${metricLabel(selectedPoint.metric)} am ${formatFullDate(selectedPoint.date)}` : 'Messwert'
+        }
+        onClose={() => setSelectedPoint(null)}
+      >
+        {selectedPoint && (
+          <div className="stack">
+            <Card className="card--soft stack stack--tight">
+              <span className="eyebrow">Gespeicherter Wert</span>
+              <strong>{formatMetricValue(selectedPoint.metric, selectedPoint.value)}</strong>
+            </Card>
+            <Button variant="secondary" full onClick={editSelectedPoint}>
+              <Pencil size={17} /> Bearbeiten
+            </Button>
+            <Button variant="danger" full onClick={() => void deleteSelectedPoint()} disabled={Boolean(savingMetric)}>
+              <Trash2 size={17} /> Löschen
+            </Button>
+            {metricError && (
+              <p className="form-error" role="alert">
+                {metricError}
+              </p>
+            )}
+          </div>
+        )}
+      </Modal>
+
       <Modal open={entryOpen} title="Werte eintragen" onClose={() => setEntryOpen(false)}>
         <div className="entry-date-card">
           <CalendarDays size={19} />
@@ -222,7 +285,6 @@ export function BodyScreen({ userId }: { userId: string }) {
             label="Datum"
             type="date"
             value={entryDate}
-            max={today()}
             onChange={(event) => {
               setEntryDate(event.target.value)
               hydrateEntry(event.target.value)
@@ -273,7 +335,7 @@ export function BodyScreen({ userId }: { userId: string }) {
           <Button
             variant="ghost"
             full
-            disabled={!existing?.weight_kg || Boolean(savingMetric)}
+            disabled={existing?.weight_kg === null || existing?.weight_kg === undefined || Boolean(savingMetric)}
             onClick={() => void clearMetric('weight_kg')}
           >
             Gewicht löschen
@@ -392,16 +454,22 @@ function MetricChart({
   icon,
   label,
   values,
+  secondaryValues = [],
+  secondaryLabel,
+  metric,
   tone,
   format,
-  formatAxis,
+  onPointSelect,
 }: {
   icon: ReactNode
   label: string
   values: { date: string; value: number }[]
+  secondaryValues?: { date: string; value: number }[]
+  secondaryLabel?: string
+  metric: 'weight' | 'calories' | 'steps'
   tone: 'orange' | 'cyan' | 'violet'
   format: (value: number) => string
-  formatAxis: (value: number) => string
+  onPointSelect?: (point: { date: string; value: number }) => void
 }) {
   const pageSize = 7
   const pageCount = Math.max(1, Math.ceil(values.length / pageSize))
@@ -429,14 +497,18 @@ function MetricChart({
   const end = Math.max(0, values.length - currentPage * pageSize)
   const start = Math.max(0, end - pageSize)
   const visibleValues = values.slice(start, end)
+  const visibleSecondaryValues = secondaryValues.filter((point) =>
+    visibleValues.some((value) => value.date === point.date),
+  )
   const latest = visibleValues.at(-1)
-  const rawMin = visibleValues.length ? Math.min(...visibleValues.map((point) => point.value)) : 0
-  const rawMax = visibleValues.length ? Math.max(...visibleValues.map((point) => point.value)) : 1
-  const rawRange = rawMax - rawMin
-  const padding = rawRange ? rawRange * 0.14 : Math.max(Math.abs(rawMax) * 0.025, 0.5)
-  const yMin = rawMin - padding
-  const yMax = rawMax + padding
-  const range = yMax - yMin || 1
+  const axisValues = [...visibleValues, ...visibleSecondaryValues]
+  const axis = calculateNiceAxis({
+    min: axisValues.length ? Math.min(...axisValues.map((point) => point.value)) : 0,
+    max: axisValues.length ? Math.max(...axisValues.map((point) => point.value)) : 1,
+    targetTickCount: 4,
+    metric,
+  })
+  const range = axis.max - axis.min || 1
   const plotLeft = 54
   const plotRight = 344
   const plotTop = 20
@@ -446,10 +518,18 @@ function MetricChart({
       visibleValues.length === 1
         ? (plotLeft + plotRight) / 2
         : plotLeft + index * ((plotRight - plotLeft) / (visibleValues.length - 1)),
-    y: plotBottom - ((point.value - yMin) / range) * (plotBottom - plotTop),
+    y: plotBottom - ((point.value - axis.min) / range) * (plotBottom - plotTop),
   }))
   const line = points.map((point) => `${point.x},${point.y}`).join(' ')
-  const yTicks = [yMax, (yMax + yMin) / 2, yMin]
+  const targetPoints = visibleSecondaryValues.map((point) => {
+    const index = visibleValues.findIndex((value) => value.date === point.date)
+    const x =
+      visibleValues.length === 1
+        ? (plotLeft + plotRight) / 2
+        : plotLeft + index * ((plotRight - plotLeft) / (visibleValues.length - 1))
+    return { ...point, x, y: plotBottom - ((point.value - axis.min) / range) * (plotBottom - plotTop) }
+  })
+  const targetLine = targetPoints.map((point) => `${point.x},${point.y}`).join(' ')
   const firstDate = visibleValues[0]?.date
   function changePage(next: number) {
     setPage(Math.max(0, Math.min(pageCount - 1, next)))
@@ -471,6 +551,17 @@ function MetricChart({
           <span>{label}</span>
           <strong>{latest ? format(latest.value) : 'Noch kein Wert'}</strong>
         </div>
+        {secondaryValues.length > 0 && (
+          <div className="metric-chart__legend" aria-label="Legende">
+            <span>
+              <i className="metric-chart__legend-line" /> Ist
+            </span>
+            <span>
+              <i className="metric-chart__legend-line metric-chart__legend-line--target" />{' '}
+              {secondaryLabel ?? 'Vergleich'}
+            </span>
+          </div>
+        )}
         {values.length > pageSize && (
           <span className="metric-chart__range">
             {currentPage === 0 ? 'Neueste 7' : `${start + 1}–${end} von ${values.length}`}
@@ -495,13 +586,13 @@ function MetricChart({
             aria-label={`${label}: ${visibleValues.length} Einträge von ${formatDate(firstDate!)} bis ${formatDate(latest!.date)}`}
           >
             <title>{`${label} von ${formatDate(firstDate!)} bis ${formatDate(latest!.date)}`}</title>
-            {yTicks.map((tick, index) => {
-              const y = plotTop + index * ((plotBottom - plotTop) / 2)
+            {axis.ticks.map((tick) => {
+              const y = plotBottom - ((tick - axis.min) / range) * (plotBottom - plotTop)
               return (
                 <g key={tick}>
                   <line x1={plotLeft} x2={plotRight} y1={y} y2={y} className="metric-chart__grid" />
                   <text x={plotLeft - 8} y={y + 3} textAnchor="end" className="metric-chart__axis-label">
-                    {formatAxis(tick)}
+                    {formatAxisTick(tick, metric, axis.step)}
                   </text>
                 </g>
               )
@@ -509,13 +600,28 @@ function MetricChart({
             <line x1={plotLeft} x2={plotLeft} y1={plotTop} y2={plotBottom} className="metric-chart__axis" />
             <line x1={plotLeft} x2={plotRight} y1={plotBottom} y2={plotBottom} className="metric-chart__axis" />
             {visibleValues.length > 1 && <polyline points={line} className="metric-chart__line" />}
+            {targetPoints.length > 1 && <polyline points={targetLine} className="metric-chart__target-line" />}
             {points.map((point, index) => (
               <g key={`${visibleValues[index].date}-${index}`}>
                 <circle
                   cx={point.x}
                   cy={point.y}
                   r={index === points.length - 1 ? 4.5 : 3}
-                  className="metric-chart__point"
+                  className={`metric-chart__point ${onPointSelect ? 'metric-chart__point--interactive' : ''}`}
+                  role={onPointSelect ? 'button' : undefined}
+                  tabIndex={onPointSelect ? 0 : undefined}
+                  aria-label={
+                    onPointSelect
+                      ? `${formatDate(visibleValues[index].date)}: ${format(visibleValues[index].value)}`
+                      : undefined
+                  }
+                  onClick={() => onPointSelect?.(visibleValues[index])}
+                  onKeyDown={(event) => {
+                    if (onPointSelect && (event.key === 'Enter' || event.key === ' ')) {
+                      event.preventDefault()
+                      onPointSelect(visibleValues[index])
+                    }
+                  }}
                 >
                   <title>{`${formatDate(visibleValues[index].date)}: ${format(visibleValues[index].value)}`}</title>
                 </circle>
@@ -542,9 +648,17 @@ function formatDate(value: string) {
   return new Intl.DateTimeFormat('de-DE', { day: '2-digit', month: '2-digit' }).format(new Date(`${value}T12:00:00`))
 }
 
-function compactNumber(value: number) {
-  return new Intl.NumberFormat('de-DE', {
-    notation: Math.abs(value) >= 1000 ? 'compact' : 'standard',
-    maximumFractionDigits: Math.abs(value) >= 1000 ? 1 : 0,
-  }).format(Math.max(0, value))
+function formatFullDate(value: string) {
+  return new Intl.DateTimeFormat('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(
+    new Date(`${value}T12:00:00`),
+  )
+}
+
+function metricLabel(metric: BodyMetric) {
+  return metric === 'weight_kg' ? 'Gewicht' : metric === 'calories' ? 'Kalorien' : 'Schritte'
+}
+
+function formatMetricValue(metric: BodyMetric, value: number) {
+  if (metric === 'weight_kg') return `${value.toLocaleString('de-DE', { maximumFractionDigits: 1 })} kg`
+  return `${Math.round(value).toLocaleString('de-DE')}${metric === 'calories' ? ' kcal' : ''}`
 }

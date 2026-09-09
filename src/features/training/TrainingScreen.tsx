@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ChevronRight, ClipboardList, Library, MoreHorizontal, Pencil, Play, Plus, RotateCcw } from 'lucide-react'
+import { ChevronRight, ClipboardList, Library, MoreHorizontal, Pencil, Play, Plus } from 'lucide-react'
 import { Button, Card, EmptyState, IconButton, ScreenHeader } from '../../components/ui'
 import { localDateString } from '../../lib/date'
 import { getUserMessage } from '../../lib/errors'
@@ -20,7 +20,7 @@ export function TrainingScreen({ userId, displayName }: { userId: string; displa
   const [workoutDate, setWorkoutDate] = useState(today())
   const [starting, setStarting] = useState(false)
   const [error, setError] = useState('')
-  const { activePlan, templates, days, exercises, activeSessions } = useTrainingData(userId)
+  const { activePlan, templates, days, exercises } = useTrainingData(userId)
 
   const selectedDay = days.find((day) => day.id === selectedDayId) ?? days[0]
   const selectedDayExercises = selectedDay
@@ -28,14 +28,7 @@ export function TrainingScreen({ userId, displayName }: { userId: string; displa
         .filter((exercise) => exercise.training_day_id === selectedDay.id)
         .sort((a, b) => a.order_index - b.order_index)
     : []
-  const selectedActiveSession = activeSessions.find((session) => session.training_day_id === selectedDay?.id)
-
   async function startWorkout(day: TrainingDay, date: string) {
-    const existing = activeSessions.find((session) => session.training_day_id === day.id)
-    if (existing) {
-      setActiveSessionId(existing.id)
-      return
-    }
     if (!activePlan) return
     setStarting(true)
     setError('')
@@ -197,18 +190,6 @@ export function TrainingScreen({ userId, displayName }: { userId: string; displa
           {error}
         </p>
       )}
-      {activeSessions.length > 0 && (
-        <Card className="resume-card">
-          <div>
-            <span className="eyebrow">Lokal gesichert</span>
-            <h2>Training läuft weiter</h2>
-            <p>Du kannst es fortsetzen oder erst einen anderen Bereich öffnen.</p>
-          </div>
-          <Button variant="secondary" onClick={() => setActiveSessionId(activeSessions[0].id)}>
-            <RotateCcw size={18} /> Fortsetzen
-          </Button>
-        </Card>
-      )}
       <div className="split-tabs" role="tablist" aria-label="Trainingstag auswählen">
         {days.map((day) => (
           <button
@@ -234,12 +215,7 @@ export function TrainingScreen({ userId, displayName }: { userId: string; displa
             </div>
             <label className="workout-date">
               <span>Datum</span>
-              <input
-                type="date"
-                value={workoutDate}
-                max={today()}
-                onChange={(event) => setWorkoutDate(event.target.value)}
-              />
+              <input type="date" value={workoutDate} onChange={(event) => setWorkoutDate(event.target.value)} />
             </label>
           </div>
           <div className="plan-exercise-list">
@@ -258,15 +234,7 @@ export function TrainingScreen({ userId, displayName }: { userId: string; displa
             disabled={starting || selectedDayExercises.length === 0}
             onClick={() => void startWorkout(selectedDay, workoutDate)}
           >
-            {selectedActiveSession ? (
-              <>
-                <RotateCcw size={18} /> Training fortsetzen
-              </>
-            ) : (
-              <>
-                <Play size={18} fill="currentColor" /> Training öffnen
-              </>
-            )}
+            <Play size={18} fill="currentColor" /> Training öffnen
           </Button>
         </Card>
       )}

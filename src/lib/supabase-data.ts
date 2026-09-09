@@ -38,6 +38,19 @@ export async function findRemoteBodyEntry(userId: string, entryDate: string): Pr
   return { data: response.data ? parseRemoteRecord(response.data, userId) : null, error: response.error }
 }
 
+export async function findRemoteGoalSettingsHistory(
+  userId: string,
+  effectiveFrom: string,
+): Promise<RemoteResult<AnySyncedRecord>> {
+  const response = await supabase
+    .from('goal_settings_history')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('effective_from', effectiveFrom)
+    .maybeSingle()
+  return { data: response.data ? parseRemoteRecord(response.data, userId) : null, error: response.error }
+}
+
 export async function fetchSyncedPage(
   table: SyncedTableName,
   userId: string,

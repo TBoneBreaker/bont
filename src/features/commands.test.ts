@@ -3,7 +3,7 @@ import { db } from '../lib/local-db/schema'
 import { completeOnboarding } from './onboarding/commands'
 import { deleteMeal } from './nutrition/commands'
 import { saveBodyMetric } from './body/commands'
-import { startWorkout } from './training/commands'
+import { startWorkout, updateWorkoutSet } from './training/commands'
 import { createBase, type Exercise, type FoodEntry, type MealSlot, type TrainingDay, type TrainingPlan } from '../types'
 import { saveRecord } from '../lib/local-db/local-repository'
 
@@ -28,6 +28,7 @@ describe('application commands', () => {
     expect(profile.onboarding_completed).toBe(true)
     expect(await db.profiles.get(profile.id)).toBeTruthy()
     expect(await db.user_settings.where('user_id').equals(userId).count()).toBe(1)
+    expect(await db.goal_settings_history.where('user_id').equals(userId).count()).toBe(1)
     expect(await db.meal_slots.where('user_id').equals(userId).count()).toBe(4)
     expect(await db.body_entries.where('user_id').equals(userId).count()).toBe(1)
   })
@@ -66,7 +67,21 @@ describe('application commands', () => {
     expect((await db.body_entries.get(current!.id))?.deleted_at).toBeTruthy()
   })
 
-  it('creates a workout session and all sets atomically', async () => {
+  it('allows body values in the future without mixing metrics or dates', async () => {
+    await saveBodyMetric({ userId, entryDate: '2099-01-15', metric: 'weight_kg', value: 82 })
+    await saveBodyMetric({ userId, entryDate: '2099-01-15', metric: 'calories', value: 2800 })
+    await saveBodyMetric({ userId, entryDate: '2099-01-15', metric: 'steps', value: 12000 })
+    await saveBodyMetric({ userId, entryDate: '2099-01-15', metric: 'steps', value: null })
+
+    expect(await db.body_entries.where('entry_date').equals('2099-01-15').first()).toMatchObject({
+      weight_kg: 82,
+      calories: 2800,
+      steps: null,
+      deleted_at: null,
+    })
+  })
+
+  it('keeps workout logs isolated by date and starts a new date empty', async () => {
     const plan: TrainingPlan = {
       ...createBase(userId),
       name: 'Plan',
@@ -87,8 +102,27 @@ describe('application commands', () => {
     await saveRecord('training_days', day, false)
     await saveRecord('exercises', exercise, false)
     const session = await startWorkout({ userId, plan, day, exercises: [exercise], workoutDate: '2026-01-01' })
+    const firstSet = await db.workout_sets.where('session_id').equals(session.id).first()
+    await updateWorkoutSet(userId, firstSet!, 'weight_kg', '100')
+    await updateWorkoutSet(userId, firstSet!, 'reps', '6')
 
-    expect(await db.workout_sessions.get(session.id)).toMatchObject({ status: 'active', user_id: userId })
+    expect(await db.workout_sessions.get(session.id)).toMatchObject({
+      status: 'active',
+      user_id: userId,
+      entry_date: '2026-01-01',
+    })
     expect(await db.workout_sets.where('session_id').equals(session.id).count()).toBe(2)
+
+    const reopened = await startWorkout({ userId, plan, day, exercises: [exercise], workoutDate: '2026-01-01' })
+    expect(reopened.id).toBe(session.id)
+    expect(await db.workout_sets.get(firstSet!.id)).toMatchObject({ weight_kg: 100, reps: 6 })
+
+    const nextDate = await startWorkout({ userId, plan, day, exercises: [exercise], workoutDate: '2026-01-02' })
+    expect(nextDate.id).not.toBe(session.id)
+    expect(await db.workout_sets.where('session_id').equals(nextDate.id).first()).toMatchObject({
+      weight_kg: null,
+      reps: null,
+      is_completed: false,
+    })
   })
 })

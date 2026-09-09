@@ -4,6 +4,7 @@ import { Button, Card, Metric, Modal } from '../../components/ui'
 import { localDateString } from '../../lib/date'
 import { getUserMessage } from '../../lib/errors'
 import { estimateMaintenance } from '../../lib/maintenance'
+import { calculateCalorieTarget } from '../../lib/calorie-target'
 import { getNutrientTarget, nutrientReferences, type NutrientReference } from '../../lib/nutrients'
 import type { FoodEntry, GoalMode, MealSlot, Profile } from '../../types'
 import { FoodSearchModal } from './FoodSearchModal'
@@ -27,19 +28,11 @@ export function NutritionScreen({ userId, profile }: { userId: string; profile: 
 
   const { settings, entries, bodyEntries, mealSlots } = useNutritionData(userId)
   const todayEntries = useMemo(() => entries.filter((entry) => entry.entry_date === date), [date, entries])
-  const maintenance = useMemo(() => estimateMaintenance(bodyEntries), [bodyEntries])
-  const baseTarget = maintenance.maintenance ?? settings?.preliminary_maintenance ?? 0
-  const calorieTarget = Math.max(
-    0,
-    baseTarget +
-      (settings?.goal_mode === 'cut'
-        ? -(settings?.calorie_adjustment ?? 0)
-        : settings?.goal_mode === 'bulk'
-          ? (settings?.calorie_adjustment ?? 0)
-          : 0),
-  )
+  const maintenance = useMemo(() => estimateMaintenance(bodyEntries, today()), [bodyEntries])
+  const baseTarget = maintenance.maintenance ?? settings?.preliminary_maintenance ?? null
+  const calorieTarget = calculateCalorieTarget(baseTarget, settings)
   const totals = useMemo(() => sumFood(todayEntries), [todayEntries])
-  const remainingCalories = Math.round(calorieTarget - totals.calories)
+  const remainingCalories = Math.round((calorieTarget ?? 0) - totals.calories)
   const calorieProgress = calorieTarget ? (totals.calories / calorieTarget) * 100 : 0
 
   async function updateGoal(mode: GoalMode) {
@@ -110,7 +103,7 @@ export function NutritionScreen({ userId, profile }: { userId: string; profile: 
             className={`calorie-ring ${remainingCalories < 0 ? 'calorie-ring--over' : ''}`}
             style={{ '--calorie-progress': `${Math.min(100, Math.max(0, calorieProgress)) * 3.6}deg` } as CSSProperties}
             role="img"
-            aria-label={`${Math.round(totals.calories)} von ${Math.round(calorieTarget)} Kilokalorien gegessen`}
+            aria-label={`${Math.round(totals.calories)} von ${Math.round(calorieTarget ?? 0)} Kilokalorien gegessen`}
           >
             <div className="calorie-ring__inside">
               <strong>{Math.abs(remainingCalories).toLocaleString('de-DE')}</strong>
@@ -126,7 +119,7 @@ export function NutritionScreen({ userId, profile }: { userId: string; profile: 
             <div>
               <span className="calorie-dot calorie-dot--target" />
               <span>Tagesziel</span>
-              <strong>{Math.round(calorieTarget).toLocaleString('de-DE')} kcal</strong>
+              <strong>{Math.round(calorieTarget ?? 0).toLocaleString('de-DE')} kcal</strong>
             </div>
             <small>{Math.round(Math.max(0, calorieProgress))} % des Ziels</small>
           </div>

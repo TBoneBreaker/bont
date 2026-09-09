@@ -2,6 +2,7 @@ import type {
   BodyEntry,
   Exercise,
   FoodEntry,
+  GoalSettingsHistory,
   MealSlot,
   Profile,
   TrainingDay,
@@ -28,6 +29,7 @@ export interface Database {
     Tables: {
       profiles: TableDefinition<Profile>
       user_settings: TableDefinition<UserSettings>
+      goal_settings_history: TableDefinition<GoalSettingsHistory>
       training_plans: TableDefinition<TrainingPlan>
       training_days: TableDefinition<TrainingDay>
       exercises: TableDefinition<Exercise>

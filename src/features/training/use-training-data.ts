@@ -23,13 +23,5 @@ export function useTrainingData(userId: string) {
     [userId],
     [],
   )
-  const activeSessions = useLiveQuery(
-    async () =>
-      (await db.workout_sessions.where('user_id').equals(userId).toArray()).filter(
-        (session) => !session.deleted_at && session.status === 'active',
-      ),
-    [userId],
-    [],
-  )
-  return { plans, activePlan, templates, days, exercises, activeSessions }
+  return { plans, activePlan, templates, days, exercises }
 }

@@ -293,7 +293,14 @@ form.auth-panel { padding: 18px; border: 1px solid var(--border); border-radius:
 .metric-chart__grid { stroke: color-mix(in srgb, var(--border) 78%, transparent); stroke-width: 1; stroke-dasharray: 3 4; }
 .metric-chart__axis { stroke: color-mix(in srgb, var(--muted) 42%, transparent); stroke-width: 1; }
 .metric-chart__line { fill: none; stroke: var(--chart-color); stroke-width: 3; vector-effect: non-scaling-stroke; stroke-linecap: round; stroke-linejoin: round; }
+.metric-chart__target-line { fill: none; stroke: var(--chart-color); stroke-width: 2; stroke-dasharray: 6 4; opacity: 0.58; vector-effect: non-scaling-stroke; stroke-linecap: round; stroke-linejoin: round; }
 .metric-chart__point { fill: var(--surface); stroke: var(--chart-color); stroke-width: 2.5; vector-effect: non-scaling-stroke; }
+.metric-chart__point--interactive { cursor: pointer; }
+.metric-chart__point--interactive:focus { outline: none; filter: drop-shadow(0 0 3px color-mix(in srgb, var(--chart-color) 55%, transparent)); }
+.metric-chart__legend { grid-column: 2; grid-row: 2; display: flex; align-items: center; gap: 9px; margin-top: 5px; color: var(--muted); font-size: 0.66rem; font-weight: 650; }
+.metric-chart__legend span { display: inline-flex; align-items: center; gap: 4px; }
+.metric-chart__legend-line { width: 16px; border-top: 3px solid var(--chart-color); }
+.metric-chart__legend-line--target { border-top-width: 2px; border-top-style: dashed; opacity: 0.58; }
 .metric-chart__empty { height: 100%; display: grid; place-items: center; color: var(--muted); font-size: 0.78rem; text-align: center; padding-inline: 24px; }
 .metric-chart__axis-label, .metric-chart__date-label { fill: var(--muted); font-family: inherit; font-size: 9px; font-variant-numeric: tabular-nums; }
 .metric-chart__date-label { fill: var(--subtle); }
@@ -340,10 +347,6 @@ form.auth-panel { padding: 18px; border: 1px solid var(--border); border-radius:
 .set-counter button:disabled { opacity: 0.35; }
 .set-counter strong { min-width: 18px; color: var(--text); text-align: center; font-size: 0.9rem; }
 
-.resume-card { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 14px; background: color-mix(in srgb, var(--primary) 9%, var(--surface)); border-color: color-mix(in srgb, var(--primary) 20%, var(--border)); }
-.resume-card h2 { margin-bottom: 4px; }
-.resume-card p { color: var(--muted); font-size: 0.72rem; margin: 0; }
-.resume-card .button { min-height: 42px; }
 .split-tabs { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; margin-inline: -18px; padding: 2px 18px 6px; }
 .split-tabs::-webkit-scrollbar { display: none; }
 .split-tabs button { flex: 1 0 auto; min-width: 92px; min-height: 47px; border: 1px solid var(--border); border-radius: 15px; padding: 0 17px; background: var(--surface); color: var(--muted); font-weight: 680; box-shadow: 0 7px 20px rgba(35, 45, 78, 0.04); }
@@ -516,8 +519,6 @@ form.auth-panel { padding: 18px; border: 1px solid var(--border); border-radius:
 
 @media (max-width: 480px) {
   .set-input-grid { grid-template-columns: 1fr; }
-  .resume-card { grid-template-columns: 1fr; }
-  .resume-card .button { width: 100%; }
 }
 
 @media (prefers-reduced-motion: reduce) {

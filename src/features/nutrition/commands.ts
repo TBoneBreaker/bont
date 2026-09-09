@@ -2,10 +2,12 @@ import { UserFacingError } from '../../lib/errors'
 import {
   listRecords,
   saveRecord,
+  saveRecordsAtomically,
   softDeleteRecord,
   softDeleteRecordsAtomically,
 } from '../../lib/local-db/local-repository'
-import type { FoodEntry, MealSlot, RecordWrite } from '../../types'
+import { localDateString } from '../../lib/date'
+import type { FoodEntry, GoalSettingsHistory, MealSlot, RecordWrite, UserSettings } from '../../types'
 import { createBase } from '../../types'
 
 export async function deleteMeal(userId: string, meal: MealSlot) {
@@ -57,14 +59,40 @@ export async function addMeal(userId: string, currentCount: number) {
   })
 }
 
-export function updateGoal(settings: import('../../types').UserSettings, mode: import('../../types').GoalMode) {
-  return saveRecord('user_settings', {
+export async function updateGoal(settings: UserSettings, mode: UserSettings['goal_mode']) {
+  const nextSettings: UserSettings = {
     ...settings,
     goal_mode: mode,
     calorie_adjustment: mode === 'maintain' ? 0 : settings.calorie_adjustment || (mode === 'cut' ? 300 : 200),
-  })
+  }
+  const history = await goalHistoryForToday(nextSettings)
+  await saveRecordsAtomically([
+    { table: 'user_settings', record: nextSettings },
+    { table: 'goal_settings_history', record: history },
+  ])
+  return nextSettings
 }
 
-export function updateCalorieAdjustment(settings: import('../../types').UserSettings, value: number) {
-  return saveRecord('user_settings', { ...settings, calorie_adjustment: Math.max(0, Math.min(1500, value)) })
+export async function updateCalorieAdjustment(settings: UserSettings, value: number) {
+  const nextSettings = { ...settings, calorie_adjustment: Math.max(0, Math.min(1500, value)) }
+  const history = await goalHistoryForToday(nextSettings)
+  await saveRecordsAtomically([
+    { table: 'user_settings', record: nextSettings },
+    { table: 'goal_settings_history', record: history },
+  ])
+  return nextSettings
+}
+
+async function goalHistoryForToday(settings: UserSettings): Promise<GoalSettingsHistory> {
+  const effectiveFrom = localDateString()
+  const existing = (await listRecords('goal_settings_history', settings.user_id, true)).find(
+    (item) => item.effective_from === effectiveFrom,
+  )
+  return {
+    ...(existing ?? createBase(settings.user_id)),
+    effective_from: effectiveFrom,
+    goal_mode: settings.goal_mode,
+    calorie_adjustment: settings.calorie_adjustment,
+    deleted_at: null,
+  }
 }
