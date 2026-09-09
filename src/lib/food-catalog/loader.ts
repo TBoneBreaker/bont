@@ -1,4 +1,4 @@
-import type { CatalogSource } from './types.ts'
+import type { CatalogSource, NutrientDefinitionMetadata } from './types.ts'
 import { validateCanonicalImportRecord, type CanonicalImportRecord } from './import-record.ts'
 
 export type ImportRunStatus = 'running' | 'validated' | 'loaded' | 'failed' | 'rolled_back'
@@ -20,6 +20,11 @@ export interface CatalogRecordLoadResult {
   qualityFlagsUpserted: number
 }
 
+export interface CatalogBatchLoadResult {
+  result: CatalogRecordLoadResult | null
+  error?: string
+}
+
 export interface CatalogImportDatabase {
   startRun(input: {
     source: CatalogSource
@@ -27,7 +32,9 @@ export interface CatalogImportDatabase {
     plannedRecords: number
     metadata: Record<string, unknown>
   }): Promise<string>
+  ensureNutrientDefinitions?(definitions: NutrientDefinitionMetadata[]): Promise<void>
   loadRecord(runId: string, record: CanonicalImportRecord): Promise<CatalogRecordLoadResult>
+  loadRecords?(runId: string, records: CanonicalImportRecord[]): Promise<CatalogBatchLoadResult[]>
   finishRun(input: {
     runId: string
     status: Exclude<ImportRunStatus, 'running' | 'validated' | 'rolled_back'>
@@ -100,35 +107,94 @@ export async function loadCatalogRecords(
     qualityFlagsUpserted: 0,
   }
 
+  if (database.ensureNutrientDefinitions) {
+    try {
+      await database.ensureNutrientDefinitions(uniqueNutrientDefinitions(input.records))
+    } catch (error) {
+      const structuralError: CatalogImportError = {
+        dedupeKey: '__nutrient-definitions__',
+        sourceRecords: [],
+        message: error instanceof Error ? error.message : String(error),
+      }
+      await database.finishRun({ runId, status: 'failed', counts, errors: [structuralError] })
+      return { runId, status: 'failed', counts, errors: [structuralError] }
+    }
+  }
+
+  const validRecords: CanonicalImportRecord[] = []
   for (const record of input.records) {
     try {
       const validationErrors = validateCanonicalImportRecord(record)
       if (validationErrors.length > 0) throw new Error(validationErrors.join(' '))
-      const loaded = await database.loadRecord(runId, record)
-      counts.loadedRecords += 1
-      counts.foodsCreated += loaded.foodCreated ? 1 : 0
-      counts.foodsReused += loaded.foodCreated ? 0 : 1
-      counts.sourceRecordsUpserted += loaded.sourceRecordsUpserted
-      counts.identityMappingsUpserted += loaded.identityMappingsUpserted
-      counts.nutrientObservationsUpserted += loaded.nutrientObservationsUpserted
-      counts.canonicalNutrientsUpserted += loaded.canonicalNutrientsUpserted
-      counts.portionsUpserted += loaded.portionsUpserted
-      counts.qualityFlagsUpserted += loaded.qualityFlagsUpserted
+      validRecords.push(record)
     } catch (error) {
-      counts.failedRecords += 1
-      errors.push({
-        dedupeKey: record.dedupeKey,
-        sourceRecords: record.sourceRecords.map(
-          (sourceRecord) => `${sourceRecord.source}:${sourceRecord.sourceRecordId}`,
-        ),
-        message: error instanceof Error ? error.message : String(error),
-      })
+      addRecordError(errors, record, error)
     }
   }
 
+  if (database.loadRecords) {
+    for (const batch of chunk(validRecords, 25)) {
+      try {
+        const results = await database.loadRecords(runId, batch)
+        if (results.length !== batch.length) throw new Error('Batch-Loader lieferte eine unerwartete Ergebnisanzahl.')
+        for (const [index, item] of results.entries()) {
+          const record = batch[index]
+          if (!record) continue
+          if (item.result) addLoadCounts(counts, item.result)
+          else addRecordError(errors, record, item.error ?? 'Datensatz konnte nicht geladen werden.')
+        }
+      } catch (error) {
+        for (const record of batch) addRecordError(errors, record, error)
+      }
+    }
+  } else {
+    for (const record of validRecords) {
+      try {
+        addLoadCounts(counts, await database.loadRecord(runId, record))
+      } catch (error) {
+        addRecordError(errors, record, error)
+      }
+    }
+  }
+
+  counts.failedRecords = errors.length
   const status = errors.length === 0 ? 'loaded' : 'failed'
   await database.finishRun({ runId, status, counts, errors })
   return { runId, status, counts, errors }
+}
+
+function addLoadCounts(counts: CatalogImportCounts, loaded: CatalogRecordLoadResult) {
+  counts.loadedRecords += 1
+  counts.foodsCreated += loaded.foodCreated ? 1 : 0
+  counts.foodsReused += loaded.foodCreated ? 0 : 1
+  counts.sourceRecordsUpserted += loaded.sourceRecordsUpserted
+  counts.identityMappingsUpserted += loaded.identityMappingsUpserted
+  counts.nutrientObservationsUpserted += loaded.nutrientObservationsUpserted
+  counts.canonicalNutrientsUpserted += loaded.canonicalNutrientsUpserted
+  counts.portionsUpserted += loaded.portionsUpserted
+  counts.qualityFlagsUpserted += loaded.qualityFlagsUpserted
+}
+
+function addRecordError(errors: CatalogImportError[], record: CanonicalImportRecord, error: unknown) {
+  errors.push({
+    dedupeKey: record.dedupeKey,
+    sourceRecords: record.sourceRecords.map((sourceRecord) => `${sourceRecord.source}:${sourceRecord.sourceRecordId}`),
+    message: error instanceof Error ? error.message : String(error),
+  })
+}
+
+function chunk<T>(values: T[], size: number) {
+  const chunks: T[][] = []
+  for (let index = 0; index < values.length; index += size) chunks.push(values.slice(index, index + size))
+  return chunks
+}
+
+function uniqueNutrientDefinitions(records: CanonicalImportRecord[]) {
+  const definitions = new Map<string, NutrientDefinitionMetadata>()
+  for (const record of records) {
+    for (const definition of record.nutrientDefinitions) definitions.set(definition.canonicalKey, definition)
+  }
+  return [...definitions.values()]
 }
 
 export function summarizeCatalogRecords(input: {
@@ -138,6 +204,16 @@ export function summarizeCatalogRecords(input: {
   duplicateCandidates: number
   records: CanonicalImportRecord[]
 }) {
+  const coverage = input.records.map((record) => record.nutrientCoverage.percentage)
+  const sortedCoverage = coverage.slice().sort((left, right) => left - right)
+  const medianCoverage = sortedCoverage.length ? (sortedCoverage[Math.floor((sortedCoverage.length - 1) / 2)] ?? 0) : 0
+  const qualityFlagCounts = input.records
+    .flatMap((record) => record.qualityFlags)
+    .reduce<Record<string, number>>((counts, flag) => {
+      const key = `${flag.severity}:${flag.code}`
+      counts[key] = (counts[key] ?? 0) + 1
+      return counts
+    }, {})
   return {
     source: input.source,
     sourceVersion: input.sourceVersion,
@@ -149,16 +225,20 @@ export function summarizeCatalogRecords(input: {
     qualityWarnings: input.records
       .flatMap((record) => record.qualityFlags)
       .filter((flag) => flag.severity === 'warning').length,
+    qualityFlagCounts,
     canonicalNutrients: input.records.reduce((total, record) => total + record.nutrients.length, 0),
     foodsWithMicronutrients: input.records.filter((record) =>
-      record.nutrients.some(
-        (nutrient) => nutrient.nutrientKey.startsWith('vitamin_') || nutrient.nutrientKey === 'folate',
-      ),
+      record.nutrientDefinitions.some((definition) => definition.nutrientGroup === 'vitamin'),
     ).length,
     portions: input.records.reduce((total, record) => total + record.portions.length, 0),
     unmappedReferenceValues: input.records.reduce(
       (total, record) => total + record.rejectedReferenceNutrients.length,
       0,
     ),
+    nutrientCoverage: {
+      averagePercentage: coverage.length ? coverage.reduce((total, value) => total + value, 0) / coverage.length : 0,
+      medianPercentage: medianCoverage,
+      foodsAbove90Percent: coverage.filter((value) => value >= 90).length,
+    },
   }
 }

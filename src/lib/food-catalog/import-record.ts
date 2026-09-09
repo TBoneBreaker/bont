@@ -1,11 +1,12 @@
 import { calculateCoverage, checkFoodCandidate, type QualityFlag } from './quality.ts'
 import { selectCanonicalNutrients } from './merge.ts'
-import { nutrientDefinitions } from './source-mappings.ts'
+import { nutrientDefinitionMetadata, nutrientDefinitions as sourceNutrientDefinitions } from './source-mappings.ts'
 import type {
   CatalogSource,
   FoodCandidate,
   FoodIdentityMapping,
   FoodPortionCandidate,
+  NutrientDefinitionMetadata,
   NutrientInheritanceRule,
 } from './types.ts'
 
@@ -21,6 +22,7 @@ export interface CanonicalImportRecord {
   }>
   identityMappings: FoodIdentityMapping[]
   nutrients: ReturnType<typeof selectCanonicalNutrients>['nutrients']
+  nutrientDefinitions: NutrientDefinitionMetadata[]
   portions: FoodPortionCandidate[]
   qualityFlags: QualityFlag[]
   nutrientCoverage: ReturnType<typeof calculateCoverage>
@@ -60,23 +62,32 @@ export function buildCanonicalRecord(
   dedupeKey: string,
   candidates: FoodCandidate[],
   explicitMappings: FoodIdentityMapping[] = [],
+  coverageGroups?: Record<string, string>,
 ): CanonicalImportRecord {
   const identity = candidates.slice().sort((left, right) => identityPriority(right) - identityPriority(left))[0]
   if (!identity) throw new Error(`Keine Kandidaten für ${dedupeKey}.`)
 
   const identityData = Object.fromEntries(
     Object.entries(identity).filter(
-      ([key]) => !['nutrients', 'source', 'sourceRecordId', 'portions', 'rawPayload'].includes(key),
+      ([key]) => !['nutrients', 'source', 'sourceRecordId', 'portions', 'qualityFlags', 'rawPayload'].includes(key),
     ),
   ) as CanonicalImportRecord['identity']
   const identityMappings = buildIdentityMappings(candidates, explicitMappings)
   const rules = buildReferenceRules(candidates, identityMappings)
+  const hasBlsReference = candidates.some((candidate) => candidate.source === 'bls' && candidate.kind === 'generic')
   const selected = selectCanonicalNutrients(
     identity.kind,
-    candidates.flatMap((candidate) => candidate.nutrients),
+    candidates.flatMap((candidate) =>
+      candidate.nutrients.map((nutrient) =>
+        candidate.source === 'usda' && candidate.kind === 'generic' && !hasBlsReference
+          ? { ...nutrient, role: 'primary' as const }
+          : nutrient,
+      ),
+    ),
     rules,
   )
   const portions = deduplicatePortions(candidates.flatMap((candidate) => candidate.portions ?? []))
+  const nutrientDefinitions = collectNutrientDefinitions(selected.nutrients)
 
   return {
     dedupeKey,
@@ -94,25 +105,57 @@ export function buildCanonicalRecord(
     })),
     identityMappings,
     nutrients: selected.nutrients,
+    nutrientDefinitions,
     portions,
-    qualityFlags: candidates.flatMap(checkFoodCandidate),
+    qualityFlags: candidates.flatMap((candidate) => [
+      ...checkFoodCandidate(candidate),
+      ...(candidate.qualityFlags ?? []),
+    ]),
     nutrientCoverage: calculateCoverage(
       selected.nutrients,
-      Object.fromEntries(nutrientDefinitions.map((definition) => [definition.key, definition.group])),
+      coverageGroups ??
+        Object.fromEntries(sourceNutrientDefinitions.map((definition) => [definition.key, definition.group])),
     ),
     rejectedReferenceNutrients: selected.rejectedReferenceNutrients,
     conflictingNutrients: selected.conflictingNutrients,
   }
 }
 
+function collectNutrientDefinitions(nutrients: CanonicalImportRecord['nutrients']) {
+  const definitions = new Map<string, NutrientDefinitionMetadata>()
+  for (const nutrient of nutrients) {
+    if (nutrient.definition) {
+      definitions.set(nutrient.definition.canonicalKey, nutrient.definition)
+      continue
+    }
+    const sourceDefinition = sourceNutrientDefinitions.find((definition) => definition.key === nutrient.nutrientKey)
+    if (sourceDefinition) definitions.set(sourceDefinition.key, nutrientDefinitionMetadata(sourceDefinition))
+  }
+  return [...definitions.values()]
+}
+
 function buildReferenceRules(candidates: FoodCandidate[], mappings: FoodIdentityMapping[]): NutrientInheritanceRule[] {
   const hasBlsReference = candidates.some((candidate) => candidate.source === 'bls' && candidate.kind === 'generic')
+  const definitions = new Map(
+    sourceNutrientDefinitions.map((definition) => [
+      definition.key,
+      { nutrientKey: definition.key, name: definition.key },
+    ]),
+  )
+  for (const nutrient of candidates.flatMap((candidate) => candidate.nutrients)) {
+    if (nutrient.definition) {
+      definitions.set(nutrient.definition.canonicalKey, {
+        nutrientKey: nutrient.definition.canonicalKey,
+        name: nutrient.definition.nameEn ?? nutrient.definition.nameDe,
+      })
+    }
+  }
   return candidates.flatMap((candidate) => {
     if (candidate.source !== 'usda' || candidate.kind !== 'generic') return []
     const mapping = mappings.find((item) => mappingConnectsCandidate(item, candidate, candidates))
     const standaloneFallback = !hasBlsReference
-    return nutrientDefinitions.map((definition) => ({
-      nutrientKey: definition.key,
+    return [...definitions.values()].map((definition) => ({
+      nutrientKey: definition.nutrientKey,
       allowed: standaloneFallback || Boolean(mapping),
       confidence: mapping?.confidence ?? (standaloneFallback ? 0.9 : 0),
       stateMatches: mapping?.stateMatches ?? standaloneFallback,
@@ -121,7 +164,7 @@ function buildReferenceRules(candidates: FoodCandidate[], mappings: FoodIdentity
         mapping?.reason ??
         (standaloneFallback
           ? 'USDA fallback because no BLS identity exists in this import group.'
-          : 'No verified BLS mapping.'),
+          : `No verified BLS mapping for ${definition.name}.`),
     }))
   })
 }

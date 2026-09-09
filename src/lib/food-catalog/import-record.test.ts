@@ -100,4 +100,30 @@ describe('canonical import records', () => {
       { labelDe: 'Portion (150 g)', amount: 150, unit: 'g', grams: 150, confidence: 0.95 },
     ])
   })
+
+  it('treats a standalone USDA generic as direct USDA data', () => {
+    const record = buildCanonicalRecord('generic|oats|raw||US', [
+      food({
+        source: 'usda',
+        sourceRecordId: 'usda-2',
+        nameDe: 'Oats, raw',
+        normalizedName: 'oats raw',
+        countryCode: 'US',
+        nutrients: [
+          observation({
+            nutrientKey: 'protein',
+            value: 13.2,
+            source: 'usda',
+            sourceRecordId: 'usda-2',
+            role: 'reference',
+          }),
+        ],
+      }),
+    ])
+
+    expect(record.nutrients[0]).toMatchObject({
+      source: 'usda',
+      derivation: 'direct',
+    })
+  })
 })

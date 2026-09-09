@@ -1,3 +1,5 @@
+import type { QualityFlag } from './quality.ts'
+
 export type CatalogSource = 'bls' | 'usda' | 'open_food_facts' | 'manual'
 export type FoodKind = 'generic' | 'branded' | 'recipe'
 export type CatalogBasisUnit = 'g' | 'ml'
@@ -5,6 +7,15 @@ export type NutrientValueStatus =
   'measured' | 'declared' | 'calculated' | 'estimated' | 'trace' | 'below_limit' | 'logical_zero' | 'unknown'
 
 export type NutrientObservationRole = 'primary' | 'declared' | 'reference'
+
+export interface NutrientDefinitionMetadata {
+  canonicalKey: string
+  nameDe: string
+  nameEn: string | null
+  unit: string
+  nutrientGroup: string
+  sourceMappings: Record<string, unknown>
+}
 
 export interface NutrientObservation {
   nutrientKey: string
@@ -19,6 +30,7 @@ export interface NutrientObservation {
   confidence: number
   provenance: string | null
   sourceUpdatedAt?: string | null
+  definition?: NutrientDefinitionMetadata
 }
 
 export interface NutrientInheritanceRule {
@@ -42,6 +54,7 @@ export interface CanonicalNutrient {
   valueStatus: NutrientValueStatus
   confidence: number
   provenance: string | null
+  definition?: NutrientDefinitionMetadata
 }
 
 export interface FoodIdentity {
@@ -64,6 +77,7 @@ export interface FoodCandidate extends FoodIdentity {
   sourceRecordId: string
   nutrients: NutrientObservation[]
   portions?: FoodPortionCandidate[]
+  qualityFlags?: QualityFlag[]
   sourceUpdatedAt?: string | null
   rawPayload?: Record<string, unknown>
 }

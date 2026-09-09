@@ -116,6 +116,14 @@ export interface Database {
         Args: { p_run_id: string; p_dedupe_key: string; p_record: Json }
         Returns: Json
       }
+      import_food_catalog_records: {
+        Args: { p_run_id: string; p_records: Json }
+        Returns: Json
+      }
+      import_food_catalog_record_safe: {
+        Args: { p_run_id: string; p_dedupe_key: string; p_record: Json }
+        Returns: Json
+      }
     }
     Enums: Record<string, never>
     CompositeTypes: Record<string, never>

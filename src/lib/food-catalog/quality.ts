@@ -4,7 +4,7 @@ const macroKeys = new Set(['protein', 'carbohydrate', 'fat', 'fiber'])
 const energyKeys = new Set(['energy_kcal', 'energy-kcal', 'calories'])
 
 export interface QualityFlag {
-  code: 'negative_value' | 'macro_over_100g' | 'energy_mismatch' | 'missing_basis' | 'unknown_unit'
+  code: 'negative_value' | 'macro_over_100g' | 'energy_mismatch' | 'missing_basis' | 'unknown_unit' | 'source_erratum'
   severity: 'warning' | 'error'
   nutrientKey?: string
   message: string

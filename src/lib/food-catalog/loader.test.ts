@@ -18,6 +18,7 @@ const record: CanonicalImportRecord = {
   sourceRecords: [{ source: 'bls', sourceRecordId: 'bls-1', rawPayload: { name: 'Skyr' } }],
   identityMappings: [],
   nutrients: [],
+  nutrientDefinitions: [],
   portions: [],
   qualityFlags: [],
   nutrientCoverage: { total: 0, known: 0, percentage: 0, byGroup: {} },
@@ -27,6 +28,7 @@ const record: CanonicalImportRecord = {
 
 class FakeDatabase implements CatalogImportDatabase {
   readonly foods = new Map<string, string>()
+  loadRecords?: NonNullable<CatalogImportDatabase['loadRecords']>
   readonly finished: Array<{
     runId: string
     status: string
@@ -148,5 +150,37 @@ describe('catalog loader orchestration', () => {
     expect(result.status).toBe('failed')
     expect(result.errors[0]?.message).toContain('Bezugsmenge ist ungültig')
     expect(database.foods.size).toBe(0)
+  })
+
+  it('uses isolated batches when the database exposes a batch loader', async () => {
+    const database = new FakeDatabase()
+    let batchCalls = 0
+    database.loadRecords = async (_runId, records) => {
+      batchCalls += 1
+      return records.map((input) => ({
+        result: {
+          foodId: `food-${input.dedupeKey}`,
+          foodCreated: true,
+          sourceRecordsUpserted: 1,
+          identityMappingsUpserted: 0,
+          nutrientObservationsUpserted: 0,
+          canonicalNutrientsUpserted: 0,
+          portionsUpserted: 0,
+          qualityFlagsUpserted: 0,
+        },
+      }))
+    }
+
+    const result = await loadCatalogRecords(database, {
+      source: 'bls',
+      sourceVersion: 'fixture-1',
+      candidates: 1,
+      duplicateCandidates: 0,
+      records: [record],
+    })
+
+    expect(result.status).toBe('loaded')
+    expect(batchCalls).toBe(1)
+    expect(result.counts.loadedRecords).toBe(1)
   })
 })

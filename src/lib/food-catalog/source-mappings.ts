@@ -1,10 +1,13 @@
 import { normalizeSearchText } from './normalize.ts'
+import type { NutrientDefinitionMetadata } from './types.ts'
 
 export interface SourceNutrientDefinition {
   key: string
   unit: 'kcal' | 'g' | 'mg' | 'µg'
   group: 'macro' | 'vitamin' | 'mineral' | 'other'
   aliases: string[]
+  nameDe?: string
+  nameEn?: string | null
 }
 
 /** Shared seed map. Unmapped source columns remain in raw_payload for later expansion. */
@@ -72,4 +75,15 @@ export function findNutrientDefinition(label: string) {
       aliases.some((alias) => normalized === alias || normalized.startsWith(`${alias} `)),
     )?.definition ?? null
   )
+}
+
+export function nutrientDefinitionMetadata(definition: SourceNutrientDefinition): NutrientDefinitionMetadata {
+  return {
+    canonicalKey: definition.key,
+    nameDe: definition.nameDe ?? definition.key,
+    nameEn: definition.nameEn ?? null,
+    unit: definition.unit,
+    nutrientGroup: definition.group,
+    sourceMappings: { aliases: definition.aliases },
+  }
 }
