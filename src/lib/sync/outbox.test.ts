@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it } from 'vitest'
+import Dexie from 'dexie'
 import { createBase, type MealSlot } from '../../types'
-import { db } from '../local-db/schema'
+import { BontDatabase, db } from '../local-db/schema'
 import { saveRecord, saveRecordsAtomically } from '../local-db/local-repository'
-import { countOutbox, listDueOutbox, markFailed, markProcessing, recoverProcessing } from './outbox'
+import { acknowledge, countOutbox, listDueOutbox, markFailed, markProcessing, recoverProcessing } from './outbox'
 
 const userId = 'outbox-test-user'
 
@@ -43,5 +44,37 @@ describe('durable outbox', () => {
     }
     expect((await db.outbox.get(item.key))?.status).toBe('dead_letter')
     expect((await countOutbox(userId)).deadLetter).toBe(1)
+  })
+
+  it('does not let an older request overwrite a newer local edit', async () => {
+    const first: MealSlot = { ...createBase(userId), name: 'Erste Fassung', order_index: 0 }
+    await saveRecord('meal_slots', first, true)
+    const queued = (await db.outbox.get(`meal_slots:${first.id}`))!
+    const second = await saveRecord('meal_slots', { ...first, name: 'Zweite Fassung' }, true)
+
+    expect(await markProcessing(queued)).toBe(false)
+    await acknowledge(queued)
+    expect(await db.outbox.get(`meal_slots:${first.id}`)).toMatchObject({ payload: second, status: 'pending' })
+  })
+
+  it('migrates legacy outbox rows with durable processing fields', async () => {
+    const name = `bont-migration-${Date.now()}`
+    const legacy = new Dexie(name)
+    legacy.version(1).stores({ outbox: '&key,table,record_id,created_at' })
+    await legacy.open()
+    await legacy.table('outbox').put({
+      key: 'meal_slots:legacy',
+      table: 'meal_slots',
+      record_id: 'legacy',
+      operation: 'upsert',
+      payload: { ...createBase(userId), name: 'Alt', order_index: 0 },
+      created_at: '2026-01-01T00:00:00.000Z',
+    })
+    legacy.close()
+
+    const migrated = new BontDatabase(name)
+    await migrated.open()
+    expect(await migrated.outbox.get('meal_slots:legacy')).toMatchObject({ user_id: userId, status: 'pending', retry_count: 0 })
+    await migrated.delete()
   })
 })

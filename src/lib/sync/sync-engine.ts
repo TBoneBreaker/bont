@@ -1,4 +1,4 @@
-import type { BodyEntry, OutboxItem, SyncedRecord, SyncedTableName } from '../../types'
+import { syncedTables, type BodyEntry, type OutboxItem, type SyncedRecord, type SyncedTableName } from '../../types'
 import { getUserMessage, logError } from '../errors'
 import { putRemoteRecord } from '../local-db/local-repository'
 import { db, getSyncedTable } from '../local-db/schema'
@@ -104,7 +104,7 @@ async function runSync(userId: string, full: boolean): Promise<SyncResult> {
   }
 
   const pendingKeys = await listPendingKeys(userId)
-  for (const table of (await import('../../types')).syncedTables) {
+  for (const table of syncedTables) {
     try {
       pulled += await pullTable(userId, table, full, pendingKeys)
     } catch (error) {

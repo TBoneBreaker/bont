@@ -1,33 +1,15 @@
-import { useMemo, useState } from 'react'
-import {
-  BarChart3,
-  CalendarDays,
-  Check,
-  CheckCircle2,
-  ChevronRight,
-  Circle,
-  ClipboardList,
-  Library,
-  MoreHorizontal,
-  Pencil,
-  Play,
-  Plus,
-  RotateCcw,
-} from 'lucide-react'
-import { Button, Card, EmptyState, IconButton, NumberStepper, ScreenHeader } from '../../components/ui'
-import { saveRecord } from '../../lib/db'
-import { dateAtNoon, localDateString } from '../../lib/date'
+import { useState } from 'react'
+import { ChevronRight, ClipboardList, Library, MoreHorizontal, Pencil, Play, Plus, RotateCcw } from 'lucide-react'
+import { Button, Card, EmptyState, IconButton, ScreenHeader } from '../../components/ui'
+import { localDateString } from '../../lib/date'
 import { getUserMessage } from '../../lib/errors'
-import { saveRecordsAtomically } from '../../lib/local-db/local-repository'
-import type { Exercise, TrainingDay, TrainingPlan, WorkoutSet } from '../../types'
+import type { TrainingDay, TrainingPlan } from '../../types'
 import { PlanBuilder } from './PlanBuilder'
-import { ExerciseProgressModal } from './ExerciseProgressModal'
-import { applyTrainingTemplate, finishWorkout as finishWorkoutCommand, startWorkout as startWorkoutCommand, updateWorkoutSet } from './commands'
+import { applyTrainingTemplate, startWorkout as startWorkoutCommand } from './commands'
 import { useTrainingData } from './use-training-data'
-import { useWorkoutData } from './use-workout-data'
+import { WorkoutView } from './WorkoutView'
 
 type TrainingView = 'overview' | 'templates'
-
 const today = localDateString
 
 export function TrainingScreen({ userId, displayName }: { userId: string; displayName: string }) {
@@ -38,7 +20,6 @@ export function TrainingScreen({ userId, displayName }: { userId: string; displa
   const [workoutDate, setWorkoutDate] = useState(today())
   const [starting, setStarting] = useState(false)
   const [error, setError] = useState('')
-
   const { activePlan, templates, days, exercises, activeSessions } = useTrainingData(userId)
 
   const selectedDay = days.find((day) => day.id === selectedDayId) ?? days[0]
@@ -78,20 +59,10 @@ export function TrainingScreen({ userId, displayName }: { userId: string; displa
   }
 
   if (builder) {
-    return (
-      <PlanBuilder
-        userId={userId}
-        existingPlan={builder.plan}
-        templateMode={builder.template}
-        onCancel={() => setBuilder(null)}
-        onSaved={() => { setBuilder(null); setView(builder.template ? 'templates' : 'overview') }}
-      />
-    )
+    return <PlanBuilder userId={userId} existingPlan={builder.plan} templateMode={builder.template} onCancel={() => setBuilder(null)} onSaved={() => { setBuilder(null); setView(builder.template ? 'templates' : 'overview') }} />
   }
 
-  if (activeSessionId) {
-    return <WorkoutView userId={userId} sessionId={activeSessionId} onExit={() => setActiveSessionId(null)} />
-  }
+  if (activeSessionId) return <WorkoutView userId={userId} sessionId={activeSessionId} onExit={() => setActiveSessionId(null)} />
 
   if (view === 'templates') {
     return (
@@ -100,19 +71,11 @@ export function TrainingScreen({ userId, displayName }: { userId: string; displa
         <main className="content content--narrow">
           {templates.length === 0 ? (
             <Card>
-              <EmptyState
-                icon={<Library size={25} />}
-                title="Noch keine Vorlagen"
-                text="Hier kannst du vor dem Release eigene Standardpläne vorbereiten. Später wird diese Hinzufügen-Funktion entfernt."
-                action={<Button onClick={() => setBuilder({ template: true })}><Plus size={18} /> Vorlage hinzufügen</Button>}
-              />
+              <EmptyState icon={<Library size={25} />} title="Noch keine Vorlagen" text="Hier kannst du vor dem Release eigene Standardpläne vorbereiten. Später wird diese Hinzufügen-Funktion entfernt." action={<Button onClick={() => setBuilder({ template: true })}><Plus size={18} /> Vorlage hinzufügen</Button>} />
             </Card>
           ) : templates.map((template) => (
             <Card key={template.id} className="stack">
-              <div className="card__row card__row--top">
-                <div><span className="eyebrow">{template.split_size}er-Split</span><h2>{template.name}</h2><p className="muted small">{template.notes || 'Keine Notizen'}</p></div>
-                <IconButton label="Vorlage bearbeiten" onClick={() => setBuilder({ plan: template, template: true })}><MoreHorizontal size={20} /></IconButton>
-              </div>
+              <div className="card__row card__row--top"><div><span className="eyebrow">{template.split_size}er-Split</span><h2>{template.name}</h2><p className="muted small">{template.notes || 'Keine Notizen'}</p></div><IconButton label="Vorlage bearbeiten" onClick={() => setBuilder({ plan: template, template: true })}><MoreHorizontal size={20} /></IconButton></div>
               <Button full onClick={() => void applyTemplate(template)}>Als Plan verwenden <ChevronRight size={18} /></Button>
             </Card>
           ))}
@@ -126,217 +89,21 @@ export function TrainingScreen({ userId, displayName }: { userId: string; displa
       <main className="content">
         <div className="page-heading"><div><span className="eyebrow">Training</span><h1>Ein Plan, der zu dir passt.</h1><p>Starte übersichtlich und passe später jede Übung an, {displayName}.</p></div></div>
         {error && <p className="form-error" role="alert">{error}</p>}
-        <Card className="stack empty-feature-card">
-          <div className="feature-icon"><ClipboardList size={23} /></div>
-          <div><h2>Eigenen Plan erstellen</h2><p className="muted">Wähle deinen Split, benenne Trainingstage und lege Übungen, Reihenfolge und Sätze selbst fest.</p></div>
-          <Button full onClick={() => setBuilder({ template: false })}><Plus size={18} /> Plan erstellen</Button>
-        </Card>
-        <Card className="card--soft card--interactive" onClick={() => setView('templates')}>
-          <div className="card__row"><div className="row"><Library size={21} /><div><h3>Vorgefertigte Pläne</h3><span className="muted small">Vorlagen ansehen oder hinzufügen</span></div></div><ChevronRight size={19} /></div>
-        </Card>
+        <Card className="stack empty-feature-card"><div className="feature-icon"><ClipboardList size={23} /></div><div><h2>Eigenen Plan erstellen</h2><p className="muted">Wähle deinen Split, benenne Trainingstage und lege Übungen, Reihenfolge und Sätze selbst fest.</p></div><Button full onClick={() => setBuilder({ template: false })}><Plus size={18} /> Plan erstellen</Button></Card>
+        <Card className="card--soft card--interactive" onClick={() => setView('templates')}><div className="card__row"><div className="row"><Library size={21} /><div><h3>Vorgefertigte Pläne</h3><span className="muted small">Vorlagen ansehen oder hinzufügen</span></div></div><ChevronRight size={19} /></div></Card>
       </main>
     )
   }
 
   return (
     <main className="content training-dashboard">
-      <div className="page-heading">
-        <div><span className="eyebrow">Aktiver Trainingsplan</span><h1>{activePlan.name}</h1></div>
-        <IconButton label="Trainingsplan bearbeiten" onClick={() => setBuilder({ plan: activePlan, template: false })}><Pencil size={19} /></IconButton>
-      </div>
+      <div className="page-heading"><div><span className="eyebrow">Aktiver Trainingsplan</span><h1>{activePlan.name}</h1></div><IconButton label="Trainingsplan bearbeiten" onClick={() => setBuilder({ plan: activePlan, template: false })}><Pencil size={19} /></IconButton></div>
       {error && <p className="form-error" role="alert">{error}</p>}
-
-      {activeSessions.length > 0 && (
-        <Card className="resume-card">
-          <div><span className="eyebrow">Lokal gesichert</span><h2>Training läuft weiter</h2><p>Du kannst es fortsetzen oder erst einen anderen Bereich öffnen.</p></div>
-          <Button variant="secondary" onClick={() => setActiveSessionId(activeSessions[0].id)}><RotateCcw size={18} /> Fortsetzen</Button>
-        </Card>
-      )}
-
-      <div className="split-tabs" role="tablist" aria-label="Trainingstag auswählen">
-        {days.map((day) => (
-          <button key={day.id} role="tab" aria-selected={selectedDay?.id === day.id} onClick={() => setSelectedDayId(day.id)}>{day.name}</button>
-        ))}
-      </div>
-
-      {selectedDay && (
-        <Card className="day-workspace stack">
-          <div className="day-workspace__top">
-            <div><span className="eyebrow">Trainingstag</span><h2>{selectedDay.name}</h2><p>{selectedDayExercises.length} Übungen · {selectedDayExercises.reduce((sum, exercise) => sum + exercise.target_sets, 0)} Sätze</p></div>
-            <label className="workout-date"><span>Datum</span><input type="date" value={workoutDate} max={today()} onChange={(event) => setWorkoutDate(event.target.value)} /></label>
-          </div>
-          <div className="plan-exercise-list">
-            {selectedDayExercises.map((exercise, index) => (
-              <div className="plan-exercise-row" key={exercise.id}>
-                <span>{String(index + 1).padStart(2, '0')}</span>
-                <strong>{exercise.name}</strong>
-                <small>{exercise.target_sets} {exercise.target_sets === 1 ? 'Satz' : 'Sätze'}</small>
-              </div>
-            ))}
-          </div>
-          <Button full disabled={starting || selectedDayExercises.length === 0} onClick={() => void startWorkout(selectedDay, workoutDate)}>
-            {selectedActiveSession ? <><RotateCcw size={18} /> Training fortsetzen</> : <><Play size={18} fill="currentColor" /> Training öffnen</>}
-          </Button>
-        </Card>
-      )}
-
-      <div className="row row--between training-footer-actions">
-        <Button variant="ghost" onClick={() => setView('templates')}><Library size={17} /> Planvorlagen</Button>
-        <Button variant="ghost" onClick={() => setBuilder({ plan: activePlan, template: false })}><Pencil size={17} /> Plan bearbeiten</Button>
-      </div>
+      {activeSessions.length > 0 && <Card className="resume-card"><div><span className="eyebrow">Lokal gesichert</span><h2>Training läuft weiter</h2><p>Du kannst es fortsetzen oder erst einen anderen Bereich öffnen.</p></div><Button variant="secondary" onClick={() => setActiveSessionId(activeSessions[0].id)}><RotateCcw size={18} /> Fortsetzen</Button></Card>}
+      <div className="split-tabs" role="tablist" aria-label="Trainingstag auswählen">{days.map((day) => <button key={day.id} role="tab" aria-selected={selectedDay?.id === day.id} onClick={() => setSelectedDayId(day.id)}>{day.name}</button>)}</div>
+      {selectedDay && <Card className="day-workspace stack"><div className="day-workspace__top"><div><span className="eyebrow">Trainingstag</span><h2>{selectedDay.name}</h2><p>{selectedDayExercises.length} Übungen · {selectedDayExercises.reduce((sum, exercise) => sum + exercise.target_sets, 0)} Sätze</p></div><label className="workout-date"><span>Datum</span><input type="date" value={workoutDate} max={today()} onChange={(event) => setWorkoutDate(event.target.value)} /></label></div><div className="plan-exercise-list">{selectedDayExercises.map((exercise, index) => <div className="plan-exercise-row" key={exercise.id}><span>{String(index + 1).padStart(2, '0')}</span><strong>{exercise.name}</strong><small>{exercise.target_sets} {exercise.target_sets === 1 ? 'Satz' : 'Sätze'}</small></div>)}</div><Button full disabled={starting || selectedDayExercises.length === 0} onClick={() => void startWorkout(selectedDay, workoutDate)}>{selectedActiveSession ? <><RotateCcw size={18} /> Training fortsetzen</> : <><Play size={18} fill="currentColor" /> Training öffnen</>}</Button></Card>}
+      <div className="row row--between training-footer-actions"><Button variant="ghost" onClick={() => setView('templates')}><Library size={17} /> Planvorlagen</Button><Button variant="ghost" onClick={() => setBuilder({ plan: activePlan, template: false })}><Pencil size={17} /> Plan bearbeiten</Button></div>
       {activePlan.notes && <Card className="card--soft"><span className="eyebrow">Notiz zum Plan</span><p className="small" style={{ margin: 0 }}>{activePlan.notes}</p></Card>}
     </main>
   )
-}
-
-function WorkoutView({ userId, sessionId, onExit }: { userId: string; sessionId: string; onExit: () => void }) {
-  const [selectedExerciseId, setSelectedExerciseId] = useState<string | null>(null)
-  const [message, setMessage] = useState('')
-  const [progressExercise, setProgressExercise] = useState<Exercise | null>(null)
-  const { session, day, exercises, sets } = useWorkoutData(userId, sessionId)
-
-  const completeExerciseIds = useMemo(() => new Set(exercises.filter((exercise) => {
-    const exerciseSets = sets.filter((set) => set.exercise_id === exercise.id)
-    return exerciseSets.length > 0 && exerciseSets.every((set) => set.is_completed)
-  }).map((exercise) => exercise.id)), [exercises, sets])
-  const orderedExercises = useMemo(() => [
-    ...exercises.filter((exercise) => !completeExerciseIds.has(exercise.id)),
-    ...exercises.filter((exercise) => completeExerciseIds.has(exercise.id)),
-  ], [exercises, completeExerciseIds])
-
-  const resolvedSelectedExerciseId = selectedExerciseId && exercises.some((exercise) => exercise.id === selectedExerciseId)
-    ? selectedExerciseId
-    : exercises.find((exercise) => !completeExerciseIds.has(exercise.id))?.id ?? exercises[0]?.id
-
-  const allDone = exercises.length > 0 && exercises.every((exercise) => completeExerciseIds.has(exercise.id))
-
-  async function updateSet(set: WorkoutSet, key: 'weight_kg' | 'reps', raw: string) {
-    try {
-      await updateWorkoutSet(set, key, raw)
-    } catch (error) {
-      setMessage(getUserMessage(error, 'Der Satzwert konnte nicht gespeichert werden.'))
-    }
-  }
-
-  async function finishExercise(exercise: Exercise) {
-    const exerciseSets = sets.filter((set) => set.exercise_id === exercise.id)
-    if (exerciseSets.some((set) => set.weight_kg === null || set.reps === null || set.reps <= 0)) {
-      setSelectedExerciseId(exercise.id)
-      setMessage('Trage für jeden Satz Gewicht und Wiederholungen ein.')
-      return
-    }
-    const next = exercises.find((item) => item.id !== exercise.id && !completeExerciseIds.has(item.id))
-    await saveRecordsAtomically(exerciseSets.map((set) => ({ table: 'workout_sets' as const, record: { ...set, is_completed: true } })))
-    setMessage('')
-    setSelectedExerciseId(next?.id ?? exercise.id)
-  }
-
-  async function reopenExercise(exercise: Exercise) {
-    const exerciseSets = sets.filter((set) => set.exercise_id === exercise.id)
-    await saveRecordsAtomically(exerciseSets.map((set) => ({ table: 'workout_sets' as const, record: { ...set, is_completed: false } })))
-    setSelectedExerciseId(exercise.id)
-  }
-
-  async function changeWorkoutDate(value: string) {
-    if (!session) return
-    await saveRecord('workout_sessions', { ...session, started_at: dateAtNoon(value) })
-  }
-
-  async function finishWorkout() {
-    if (!session || !allDone) return
-    try {
-      await finishWorkoutCommand(session)
-      setMessage(`${day?.name ?? 'Training'} abgeschlossen`)
-      window.setTimeout(onExit, 700)
-    } catch (error) {
-      setMessage(getUserMessage(error, 'Das Training konnte nicht abgeschlossen werden.'))
-    }
-  }
-
-  if (!session || !day) return <div className="center-screen"><p className="muted">Training wird geladen …</p></div>
-
-  return (
-    <div className="subview workout-shell">
-      <ScreenHeader title={day.name} eyebrow="Laufendes Training" onBack={onExit} action={<span className="pill">{completeExerciseIds.size}/{exercises.length}</span>} />
-      <main className="content content--narrow">
-        <Card className="workout-date-card">
-          <div><CalendarDays size={19} /><div><span>Trainingsdatum</span><strong>{formatLongDate(session.started_at.slice(0, 10))}</strong></div></div>
-          <input aria-label="Trainingsdatum ändern" type="date" value={session.started_at.slice(0, 10)} max={today()} onChange={(event) => void changeWorkoutDate(event.target.value)} />
-        </Card>
-
-        <div className="workout-progress-copy">
-          <div><span className="eyebrow">Übungen</span><h2>{allDone ? 'Alles erledigt.' : 'Wähle deine nächste Übung.'}</h2></div>
-          <span>{completeExerciseIds.size} von {exercises.length}</span>
-        </div>
-
-        <div className="workout-exercise-list">
-          {orderedExercises.map((exercise) => {
-            const complete = completeExerciseIds.has(exercise.id)
-            const selected = resolvedSelectedExerciseId === exercise.id
-            const exerciseSets = sets.filter((set) => set.exercise_id === exercise.id)
-            return (
-              <Card key={exercise.id} className={`workout-exercise ${complete ? 'workout-exercise--complete' : 'workout-exercise--pending'} ${selected ? 'workout-exercise--selected' : ''}`}>
-                <div className="workout-exercise__head">
-                  <button className="workout-exercise__select" onClick={() => setSelectedExerciseId(exercise.id)} aria-expanded={selected}>
-                    <span className="workout-exercise__status">{complete ? <CheckCircle2 size={20} /> : <Circle size={20} />}</span>
-                    <span><strong>{exercise.name}</strong><small>{exerciseSets.length} {exerciseSets.length === 1 ? 'Satz' : 'Sätze'} · {complete ? 'abgeschlossen' : 'offen'}</small></span>
-                  </button>
-                  <IconButton label={`Fortschritt für ${exercise.name} anzeigen`} onClick={() => setProgressExercise(exercise)}><BarChart3 size={19} /></IconButton>
-                </div>
-
-                {selected && (
-                  <div className="workout-exercise__body">
-                    <div className="set-cards">
-                      {exerciseSets.map((set) => (
-                        <div className={`set-card ${set.is_completed ? 'set-card--done' : ''}`} key={set.id}>
-                          <div className="set-card__number"><span>Satz</span><strong>{set.set_number}</strong></div>
-                          <div className="set-input-grid">
-                            <NumberStepper
-                              label="Gewicht"
-                              inputLabel={`Gewicht Satz ${set.set_number}`}
-                              value={set.weight_kg === null ? '' : String(set.weight_kg)}
-                              onChange={(value) => void updateSet(set, 'weight_kg', value)}
-                              step={0.5}
-                              min={0}
-                              max={500}
-                              unit="kg"
-                            />
-                            <NumberStepper
-                              label="Wiederholungen"
-                              inputLabel={`Wiederholungen Satz ${set.set_number}`}
-                              value={set.reps === null ? '' : String(set.reps)}
-                              onChange={(value) => void updateSet(set, 'reps', value)}
-                              step={1}
-                              min={1}
-                              max={100}
-                              unit="Wdh."
-                            />
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                    {message && !complete && <p className="form-error" role="status">{message}</p>}
-                    {complete ? (
-                      <Button variant="secondary" full onClick={() => void reopenExercise(exercise)}><RotateCcw size={17} /> Übung wieder öffnen</Button>
-                    ) : (
-                      <Button full onClick={() => void finishExercise(exercise)}><Check size={18} /> Übung abschließen</Button>
-                    )}
-                  </div>
-                )}
-              </Card>
-            )
-          })}
-        </div>
-
-        <Button full disabled={!allDone} onClick={() => void finishWorkout()}><CheckCircle2 size={19} /> {allDone ? `${day.name} abschließen` : 'Training abschließen'}</Button>
-        <p className="auth-note">Du kannst diese Ansicht jederzeit verlassen. Alle Eingaben und das laufende Training bleiben lokal gespeichert.</p>
-      </main>
-      <ExerciseProgressModal open={Boolean(progressExercise)} exercise={progressExercise} userId={userId} onClose={() => setProgressExercise(null)} />
-      {message && allDone && <div className="toast">{message}</div>}
-    </div>
-  )
-}
-
-function formatLongDate(value: string) {
-  return new Intl.DateTimeFormat('de-DE', { weekday: 'short', day: '2-digit', month: 'short' }).format(new Date(`${value}T12:00:00`))
 }

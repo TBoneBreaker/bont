@@ -16,6 +16,12 @@ export interface DayDraft {
   exercises: ExerciseDraft[]
 }
 
+function assertOwned(userId: string, records: Array<{ user_id: string }>) {
+  if (records.some((record) => record.user_id !== userId)) {
+    throw new UserFacingError('Diese Trainingsdaten gehören nicht zu deinem Konto.')
+  }
+}
+
 export async function saveTrainingPlan({ userId, existingPlan, templateMode, name, notes, split, days }: {
   userId: string
   existingPlan?: TrainingPlan
@@ -25,11 +31,13 @@ export async function saveTrainingPlan({ userId, existingPlan, templateMode, nam
   split: number
   days: DayDraft[]
 }) {
+  if (existingPlan) assertOwned(userId, [existingPlan])
   if (name.trim().length < 2 || days.length !== split || days.some((day) => !day.name.trim() || !day.exercises.length || day.exercises.some((exercise) => !exercise.name.trim() || exercise.targetSets < 1))) {
     throw new UserFacingError('Benenne jeden Trainingstag und füge mindestens eine benannte Übung hinzu.')
   }
   const plan: TrainingPlan = {
     ...(existingPlan ?? createBase(userId)),
+    user_id: userId,
     name: name.trim(),
     split_size: split,
     notes: notes.trim(),
@@ -62,6 +70,7 @@ export async function saveTrainingPlan({ userId, existingPlan, templateMode, nam
 }
 
 export async function applyTrainingTemplate(userId: string, template: TrainingPlan) {
+  assertOwned(userId, [template])
   const templateDays = (await listRecords('training_days', userId)).filter((day) => day.plan_id === template.id).sort((a, b) => a.order_index - b.order_index)
   const allExercises = await listRecords('exercises', userId)
   const plan: TrainingPlan = { ...createBase(userId), name: template.name, split_size: template.split_size, notes: template.notes, is_active: true, is_template: false }
@@ -79,6 +88,8 @@ export async function applyTrainingTemplate(userId: string, template: TrainingPl
 }
 
 export async function startWorkout({ userId, plan, day, exercises, workoutDate }: { userId: string; plan: TrainingPlan; day: TrainingDay; exercises: Exercise[]; workoutDate: string }) {
+  assertOwned(userId, [plan, day, ...exercises])
+  if (day.plan_id !== plan.id) throw new UserFacingError('Der Trainingstag gehört nicht zu diesem Plan.')
   const active = (await listRecords('workout_sessions', userId)).find((session) => session.training_day_id === day.id && session.status === 'active')
   if (active) return active
   const completedSessions = (await listRecords('workout_sessions', userId)).filter((session) => session.training_day_id === day.id && session.status === 'completed').sort((a, b) => b.started_at.localeCompare(a.started_at))
@@ -96,12 +107,25 @@ export async function startWorkout({ userId, plan, day, exercises, workoutDate }
   return session
 }
 
-export async function updateWorkoutSet(set: WorkoutSet, key: 'weight_kg' | 'reps', raw: string) {
+export async function updateWorkoutSet(userId: string, set: WorkoutSet, key: 'weight_kg' | 'reps', raw: string) {
+  assertOwned(userId, [set])
   const value = raw === '' ? null : Number(raw)
   if (value !== null && (!Number.isFinite(value) || value < 0 || (key === 'reps' && value > 100) || (key === 'weight_kg' && value > 500))) throw new UserFacingError('Bitte trage einen gültigen Satzwert ein.')
   return saveRecord('workout_sets', { ...set, [key]: value })
 }
 
-export async function finishWorkout(session: WorkoutSession) {
+export async function completeExercise(userId: string, sets: WorkoutSet[], completed: boolean) {
+  assertOwned(userId, sets)
+  if (!sets.length) throw new UserFacingError('Für diese Übung wurden keine Sätze gefunden.')
+  return saveRecordsAtomically(sets.map((set) => ({ table: 'workout_sets' as const, record: { ...set, is_completed: completed } })))
+}
+
+export function changeWorkoutDate(userId: string, session: WorkoutSession, value: string) {
+  assertOwned(userId, [session])
+  return saveRecord('workout_sessions', { ...session, started_at: dateAtNoon(value) })
+}
+
+export async function finishWorkout(userId: string, session: WorkoutSession) {
+  assertOwned(userId, [session])
   return saveRecord('workout_sessions', { ...session, status: 'completed', completed_at: new Date().toISOString() })
 }

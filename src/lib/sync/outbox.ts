@@ -5,6 +5,14 @@ import { recordKey, tablePriority } from '../local-db/tables'
 
 export const MAX_RETRIES = 5
 
+function isSameQueuedWrite(current: OutboxItem | undefined, item: OutboxItem): current is OutboxItem {
+  if (!current || current.key !== item.key || current.created_at !== item.created_at) return false
+  // created_at is also the local revision timestamp. Compare the payload as
+  // well so a fast second edit cannot be acknowledged by an older request
+  // when both edits happen in the same millisecond.
+  return JSON.stringify(current.payload) === JSON.stringify(item.payload)
+}
+
 export function createOutboxItem<T extends SyncedTableName>(table: T, record: SyncedRecord<T>, timestamp = record.updated_at): OutboxItem {
   return {
     key: recordKey(table, record.id),
@@ -49,14 +57,14 @@ export async function countOutbox(userId: string) {
 
 export async function markProcessing(item: OutboxItem) {
   const current = await db.outbox.get(item.key)
-  if (!current || current.created_at !== item.created_at) return false
+  if (!isSameQueuedWrite(current, item)) return false
   await db.outbox.put({ ...current, status: 'processing', updated_at: new Date().toISOString() })
   return true
 }
 
 export async function markFailed(item: OutboxItem, error: unknown, now = new Date()) {
   const current = await db.outbox.get(item.key)
-  if (!current || current.created_at !== item.created_at) return 'superseded' as const
+  if (!isSameQueuedWrite(current, item)) return 'superseded' as const
   const retryCount = current.retry_count + 1
   const deadLetter = retryCount >= MAX_RETRIES
   const message = error instanceof Error ? error.message : 'Unbekannter Synchronisierungsfehler'
@@ -73,7 +81,7 @@ export async function markFailed(item: OutboxItem, error: unknown, now = new Dat
 
 export async function acknowledge(item: OutboxItem) {
   const current = await db.outbox.get(item.key)
-  if (current?.created_at === item.created_at) await db.outbox.delete(item.key)
+  if (isSameQueuedWrite(current, item)) await db.outbox.delete(item.key)
 }
 
 export async function recoverProcessing(userId?: string) {

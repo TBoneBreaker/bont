@@ -1,11 +1,11 @@
 import { useState } from 'react'
 import { Cloud, KeyRound, LogOut, Moon, RefreshCw, Sun, UserRound } from 'lucide-react'
-import { useLiveQuery } from 'dexie-react-hooks'
 import { Button, Card, Field, InfoNote, Modal, SelectField } from '../../components/ui'
-import { db, syncUser } from '../../lib/db'
+import { syncUser } from '../../lib/db'
 import { getUserMessage } from '../../lib/errors'
 import { authService } from '../auth/auth-service'
 import { saveProfile, saveTheme } from './commands'
+import { useAppState } from '../app/use-app-state'
 import type { ActivityLevel, BodyFatCategory, Profile, Sex, ThemeMode } from '../../types'
 
 export function SettingsPanel({
@@ -23,9 +23,8 @@ export function SettingsPanel({
   onClose: () => void
   onSignedOut: () => void
 }) {
-  const settings = useLiveQuery(() => db.user_settings.where('user_id').equals(profile.user_id).first(), [profile.user_id])
-  const pending = useLiveQuery(async () => (await db.outbox.toArray())
-    .filter((item) => item.payload.user_id === profile.user_id).length, [profile.user_id], 0)
+  const { settings, sync: syncState } = useAppState(profile.user_id)
+  const pending = syncState.pending + syncState.failed + syncState.deadLetter
   const [editingProfile, setEditingProfile] = useState(false)
   const [syncing, setSyncing] = useState(false)
   const [status, setStatus] = useState('')
@@ -126,13 +125,12 @@ export function SettingsPanel({
         <Button variant={demo ? 'secondary' : 'danger'} full disabled={loggingOut} onClick={() => void logout()}><LogOut size={18} /> {demo ? 'Zur Anmeldung' : loggingOut ? 'Wird abgemeldet …' : 'Abmelden'}</Button>
         <p className="auth-note">{demo ? 'Änderungen in der Demo bleiben ausschließlich auf diesem Gerät.' : 'Bont speichert laufende Trainings und Änderungen zuerst lokal. Cloud-Daten werden pro Nutzer durch Zugriffsregeln getrennt.'}</p>
       </Modal>
-      <ProfileEditor key={editingProfile ? 'profile-open' : 'profile-closed'} open={open && editingProfile} profile={profile} onClose={() => setEditingProfile(false)} />
+      <ProfileEditor key={editingProfile ? 'profile-open' : 'profile-closed'} open={open && editingProfile} profile={profile} settings={settings} onClose={() => setEditingProfile(false)} />
     </>
   )
 }
 
-function ProfileEditor({ open, profile, onClose }: { open: boolean; profile: Profile; onClose: () => void }) {
-  const settings = useLiveQuery(() => db.user_settings.where('user_id').equals(profile.user_id).first(), [profile.user_id])
+function ProfileEditor({ open, profile, settings, onClose }: { open: boolean; profile: Profile; settings?: import('../../types').UserSettings; onClose: () => void }) {
   const [name, setName] = useState(profile.display_name)
   const [birthDate, setBirthDate] = useState(profile.birth_date)
   const [sex, setSex] = useState<Sex>(profile.sex)

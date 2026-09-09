@@ -1,6 +1,7 @@
 import Dexie, { type Table } from 'dexie'
 import type {
   BodyEntry,
+  BaseRecord,
   Exercise,
   FoodEntry,
   MealSlot,
@@ -14,7 +15,6 @@ import type {
   UserSettings,
   WorkoutSession,
   WorkoutSet,
-  BaseRecord,
 } from '../../types'
 
 export class BontDatabase extends Dexie {
@@ -76,9 +76,4 @@ export const db = new BontDatabase()
 
 export function getSyncedTable<T extends SyncedTableName>(table: T): Table<SyncedRecord<T>, string> {
   return db.table(table) as unknown as Table<SyncedRecord<T>, string>
-}
-
-/** Dynamic table access is kept in this module so UI code never needs Dexie's casts. */
-export function getAnySyncedTable(): Table<BaseRecord, string> {
-  return db.table('profiles') as unknown as Table<BaseRecord, string>
 }
