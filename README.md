@@ -35,6 +35,10 @@ VITE_SUPABASE_PUBLISHABLE_KEY=
 
 Nur der öffentliche Supabase-Publishable-Key gehört in die Browser-App. Ein `service_role`- oder Secret-Key darf niemals in einer `VITE_`-Variable oder im Repository stehen.
 
+Der serverseitige Food-Catalog-Importer verwendet ausschließlich Shell-Variablen
+`SUPABASE_URL` und `SUPABASE_SERVICE_ROLE_KEY`. Ablauf, Dry-Run und Importreihenfolge
+stehen in [docs/food-catalog-import.md](docs/food-catalog-import.md).
+
 ## Datenbank
 
 Die SQL-Migrationen liegen unter `supabase/migrations`. Jede Tabelle hat aktive RLS-Regeln, die Zugriffe auf `auth.uid() = user_id` begrenzen.

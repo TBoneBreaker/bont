@@ -76,10 +76,10 @@ export function checkNutrientPlausibility(observations: NutrientObservation[]): 
 }
 
 export function calculateCoverage(
-  observations: NutrientObservation[],
+  observations: Array<Pick<NutrientObservation, 'nutrientKey' | 'value'>>,
   nutrientGroups: Record<string, string> = {},
 ): NutrientCoverage {
-  const byKey = new Map<string, NutrientObservation>()
+  const byKey = new Map<string, Pick<NutrientObservation, 'nutrientKey' | 'value'>>()
   for (const observation of observations)
     if (!byKey.has(observation.nutrientKey)) byKey.set(observation.nutrientKey, observation)
   const groups: Record<string, { total: number; known: number; percentage: number }> = {}

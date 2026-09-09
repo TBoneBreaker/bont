@@ -1,10 +1,18 @@
 import { createReadStream } from 'node:fs'
-import { readFile, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { basename, join } from 'node:path'
 import { createInterface } from 'node:readline'
 import { unzipSync, strFromU8 } from 'fflate'
+import { createClient } from '@supabase/supabase-js'
 import { groupDuplicateFoods } from '../src/lib/food-catalog/dedupe.ts'
-import { selectCanonicalNutrients } from '../src/lib/food-catalog/merge.ts'
-import { calculateCoverage, checkFoodCandidate } from '../src/lib/food-catalog/quality.ts'
+import { buildCanonicalRecord } from '../src/lib/food-catalog/import-record.ts'
+import {
+  loadCatalogRecords,
+  summarizeCatalogRecords,
+  type CatalogImportDatabase,
+  type CatalogRecordLoadResult,
+} from '../src/lib/food-catalog/loader.ts'
 import {
   convertNutrientUnit,
   normalizeBarcode,
@@ -24,54 +32,86 @@ type JsonRecord = Record<string, unknown>
 
 interface ImportOptions {
   source: CatalogSource
-  input: string
+  input: string | null
   output: string | null
   countries: string[]
   mapping: string | null
+  sourceVersion: string | null
+  usdaDataTypes: string
+  write: boolean
+  confirmProduction: boolean
 }
 
-interface CanonicalImportRecord {
-  dedupeKey: string
-  identity: Omit<FoodCandidate, 'nutrients' | 'source' | 'sourceRecordId'>
-  sourceRecords: Array<{ source: CatalogSource; sourceRecordId: string; rawPayload: JsonRecord }>
-  nutrients: ReturnType<typeof selectCanonicalNutrients>['nutrients']
-  qualityFlags: ReturnType<typeof checkFoodCandidate>
-  nutrientCoverage: ReturnType<typeof calculateCoverage>
-  rejectedReferenceNutrients: string[]
-  conflictingNutrients: string[]
+async function main() {
+  const args = parseArgs(process.argv.slice(2))
+  let temporaryInputDirectory: string | null = null
+  try {
+    const resolvedInput = await resolveInput(args)
+    if (!resolvedInput.input) {
+      console.log(JSON.stringify({ source: args.source, skipped: true, reason: resolvedInput.reason }, null, 2))
+      return
+    }
+    temporaryInputDirectory = resolvedInput.temporaryInputDirectory
+    const candidates = await parseSource({ ...args, input: resolvedInput.input })
+    const mappings = args.mapping ? (JSON.parse(await readFile(args.mapping, 'utf8')) as FoodIdentityMapping[]) : []
+    const groups = groupDuplicateFoods(candidates, mappings)
+    const records = groups.map((group) => buildCanonicalRecord(group.key, group.candidates, mappings))
+    const sourceVersion = args.sourceVersion ?? resolvedInput.sourceVersion ?? basename(resolvedInput.input)
+    const summary = summarizeCatalogRecords({
+      source: args.source,
+      sourceVersion,
+      candidates: candidates.length,
+      duplicateCandidates: candidates.length - records.length,
+      records,
+    })
+
+    if (args.output) {
+      await writeFile(
+        args.output,
+        records.map((record) => JSON.stringify(record)).join('\n') + (records.length ? '\n' : ''),
+        'utf8',
+      )
+    }
+
+    if (!args.write) {
+      console.log(JSON.stringify({ ...summary, mode: 'dry-run', output: args.output }, null, 2))
+      return
+    }
+    if (!args.confirmProduction) {
+      throw new Error('Production-Schreiben erfordert zusätzlich --confirm-production.')
+    }
+
+    const result = await loadCatalogRecords(createSupabaseImportDatabase(), {
+      source: args.source,
+      sourceVersion,
+      candidates: candidates.length,
+      duplicateCandidates: candidates.length - records.length,
+      records,
+      metadata: {
+        countries: args.countries,
+        explicitMappings: mappings.length,
+        usdaDataTypes: args.source === 'usda' ? args.usdaDataTypes : null,
+      },
+    })
+    console.log(JSON.stringify({ ...summary, mode: 'production-write', output: args.output, ...result }, null, 2))
+  } finally {
+    if (temporaryInputDirectory) await rm(temporaryInputDirectory, { recursive: true, force: true })
+  }
 }
 
-const args = parseArgs(process.argv.slice(2))
-const candidates = await parseSource(args)
-const mappings = args.mapping ? (JSON.parse(await readFile(args.mapping, 'utf8')) as FoodIdentityMapping[]) : []
-const groups = groupDuplicateFoods(candidates, mappings)
-const records = groups.map((group) => buildCanonicalRecord(group.key, group.candidates))
-const summary = {
-  source: args.source,
-  input: args.input,
-  countryFilter: args.countries,
-  candidates: candidates.length,
-  deduplicatedFoods: records.length,
-  duplicateCandidates: candidates.length - records.length,
-  explicitMappings: mappings.length,
-  qualityErrors: records.flatMap((record) => record.qualityFlags.filter((flag) => flag.severity === 'error')).length,
-  qualityWarnings: records.flatMap((record) => record.qualityFlags.filter((flag) => flag.severity === 'warning'))
-    .length,
-  unmappedReferenceValues: records.reduce((total, record) => total + record.rejectedReferenceNutrients.length, 0),
-}
-
-if (args.output) {
-  await writeFile(
-    args.output,
-    records.map((record) => JSON.stringify(record)).join('\n') + (records.length ? '\n' : ''),
-    'utf8',
-  )
-}
-
-console.log(JSON.stringify({ ...summary, output: args.output }, null, 2))
+await main()
 
 function parseArgs(values: string[]): ImportOptions {
-  const options: Partial<ImportOptions> = { output: null, countries: ['DE'], mapping: null }
+  const options: Partial<ImportOptions> = {
+    input: null,
+    output: null,
+    countries: ['DE'],
+    mapping: null,
+    sourceVersion: null,
+    usdaDataTypes: 'Foundation,SR Legacy',
+    write: false,
+    confirmProduction: false,
+  }
   for (let index = 0; index < values.length; index += 1) {
     const value = values[index]
     const next = values[index + 1]
@@ -93,14 +133,59 @@ function parseArgs(values: string[]): ImportOptions {
     } else if (value === '--mapping' && next) {
       options.mapping = next
       index += 1
+    } else if (value === '--source-version' && next) {
+      options.sourceVersion = next
+      index += 1
+    } else if (value === '--usda-data-types' && next) {
+      options.usdaDataTypes = next
+      index += 1
+    } else if (value === '--write') {
+      options.write = true
+    } else if (value === '--confirm-production') {
+      options.confirmProduction = true
     }
   }
-  if (!options.source || !options.input) {
+  if (!options.source) {
     throw new Error(
-      'Aufruf: npm run catalog:dry-run -- --source bls|usda|open_food_facts --input <Datei> [--mapping <JSON>] [--output <JSONL>]',
+      'Aufruf: npm run catalog:dry-run -- --source bls|usda|open_food_facts --input <Datei> [--mapping <JSON>] [--output <JSONL>] oder npm run catalog:import -- --source <Quelle> --input <Datei> --confirm-production',
     )
   }
   return options as ImportOptions
+}
+
+async function resolveInput(options: ImportOptions) {
+  if (options.input) return { input: options.input, temporaryInputDirectory: null, sourceVersion: null, reason: null }
+  if (options.source !== 'usda') {
+    throw new Error(`Für ${options.source} ist eine lokale Exportdatei mit --input erforderlich.`)
+  }
+  const apiKey = process.env.USDA_FDC_API_KEY
+  if (!apiKey) {
+    return {
+      input: null,
+      temporaryInputDirectory: null,
+      sourceVersion: null,
+      reason: 'USDA_FDC_API_KEY fehlt; USDA wird übersprungen.',
+    }
+  }
+  const temporaryInputDirectory = await mkdtemp(join(tmpdir(), 'bont-usda-'))
+  const input = join(temporaryInputDirectory, 'usda-foods.json')
+  const foods: JsonRecord[] = []
+  const pageSize = 200
+  for (let pageNumber = 1; ; pageNumber += 1) {
+    const url = new URL('https://api.nal.usda.gov/fdc/v1/foods/list')
+    url.searchParams.set('api_key', apiKey)
+    url.searchParams.set('pageSize', String(pageSize))
+    url.searchParams.set('pageNumber', String(pageNumber))
+    url.searchParams.set('dataType', options.usdaDataTypes)
+    const response = await fetch(url)
+    if (!response.ok) throw new Error(`USDA API antwortete mit HTTP ${response.status}.`)
+    const page = (await response.json()) as unknown
+    if (!Array.isArray(page)) throw new Error('USDA API lieferte kein Array.')
+    foods.push(...page.filter(isRecord))
+    if (page.length < pageSize) break
+  }
+  await writeFile(input, JSON.stringify(foods), 'utf8')
+  return { input, temporaryInputDirectory, sourceVersion: 'USDA-API-Foundation-SR-Legacy', reason: null }
 }
 
 function isCatalogSource(value: unknown): value is CatalogSource {
@@ -108,6 +193,7 @@ function isCatalogSource(value: unknown): value is CatalogSource {
 }
 
 async function parseSource(options: ImportOptions): Promise<FoodCandidate[]> {
+  if (!options.input) throw new Error('Eine Quelldatei ist erforderlich.')
   if (options.source === 'bls') return parseBlsWorkbook(options.input)
   if (options.source === 'usda') return parseUsdaJson(options.input)
   return parseOpenFoodFacts(options.input, options.countries)
@@ -254,10 +340,27 @@ async function parseUsdaJson(input: string): Promise<FoodCandidate[]> {
         source: 'usda',
         sourceRecordId,
         nutrients,
+        portions: usdaPortions(food),
+        sourceUpdatedAt: cleanString(food.publicationDate),
         rawPayload: food,
       } satisfies FoodCandidate,
     ]
   })
+}
+
+function usdaPortions(food: JsonRecord): FoodPortionCandidate[] {
+  const amount = parseNullableNumber(food.servingSize)
+  const unit = cleanString(food.servingSizeUnit)?.toLowerCase() as 'g' | 'ml' | undefined
+  if (amount === null || amount <= 0 || (unit !== 'g' && unit !== 'ml')) return []
+  return [
+    {
+      labelDe: `Portion (${amount} ${unit})`,
+      amount,
+      unit,
+      grams: unit === 'g' ? amount : null,
+      confidence: 0.95,
+    },
+  ]
 }
 
 async function parseOpenFoodFacts(input: string, countries: string[]): Promise<FoodCandidate[]> {
@@ -395,49 +498,81 @@ function offPortion(product: JsonRecord, basisUnit: 'g' | 'ml'): FoodPortionCand
   ]
 }
 
-function buildCanonicalRecord(dedupeKey: string, candidates: FoodCandidate[]): CanonicalImportRecord {
-  const identity = candidates.slice().sort((left, right) => identityPriority(right) - identityPriority(left))[0]
-  const identityData = Object.fromEntries(
-    Object.entries(identity).filter(([key]) => !['nutrients', 'source', 'sourceRecordId'].includes(key)),
-  ) as CanonicalImportRecord['identity']
-  const observations = candidates.flatMap((candidate) => candidate.nutrients)
-  const rules = candidates.flatMap((candidate) =>
-    candidate.source === 'usda' && candidate.kind === 'generic'
-      ? nutrientDefinitions.map((definition) => ({
-          nutrientKey: definition.key,
-          allowed: true,
-          confidence: 0.95,
-          stateMatches: candidates.every((other) => other.preparationState === candidate.preparationState),
-          definitionMatches: true,
-          reason: 'generic food with matching preparation state',
-        }))
-      : [],
-  )
-  const selected = selectCanonicalNutrients(identity.kind, observations, rules)
+function createSupabaseImportDatabase(): CatalogImportDatabase {
+  const supabaseUrl = process.env.SUPABASE_URL
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (!supabaseUrl || !serviceRoleKey) {
+    throw new Error('Für Production-Importe werden SUPABASE_URL und SUPABASE_SERVICE_ROLE_KEY benötigt.')
+  }
+  const supabase = createClient(supabaseUrl, serviceRoleKey, {
+    auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false },
+  })
+
   return {
-    dedupeKey,
-    identity: identityData,
-    sourceRecords: candidates.map((candidate) => ({
-      source: candidate.source,
-      sourceRecordId: candidate.sourceRecordId,
-      rawPayload: candidate.rawPayload ?? { id: candidate.id, name: candidate.nameDe, brand: candidate.brand ?? null },
-    })),
-    nutrients: selected.nutrients,
-    qualityFlags: candidates.flatMap(checkFoodCandidate),
-    nutrientCoverage: calculateCoverage(
-      selected.nutrients,
-      Object.fromEntries(nutrientDefinitions.map((definition) => [definition.key, definition.group])),
-    ),
-    rejectedReferenceNutrients: selected.rejectedReferenceNutrients,
-    conflictingNutrients: selected.conflictingNutrients,
+    async startRun(input) {
+      const { data, error } = await supabase
+        .from('food_import_runs')
+        .insert({
+          source_code: input.source,
+          source_version: input.sourceVersion,
+          status: 'running',
+          counts: { plannedRecords: input.plannedRecords },
+          metadata: input.metadata,
+        })
+        .select('id')
+        .single()
+      if (error || !data?.id) throw formatSupabaseError(error, 'Importlauf konnte nicht gestartet werden.')
+      return String(data.id)
+    },
+
+    async loadRecord(runId, record) {
+      const { data, error } = await supabase.rpc('import_food_catalog_record', {
+        p_run_id: runId,
+        p_dedupe_key: record.dedupeKey,
+        p_record: record,
+      })
+      if (error) throw formatSupabaseError(error, `Datensatz ${record.dedupeKey} konnte nicht geladen werden.`)
+      return parseLoadResult(data)
+    },
+
+    async finishRun(input) {
+      const { error } = await supabase
+        .from('food_import_runs')
+        .update({
+          status: input.status,
+          completed_at: new Date().toISOString(),
+          counts: input.counts,
+          errors: input.errors,
+        })
+        .eq('id', input.runId)
+      if (error) throw formatSupabaseError(error, 'Importlauf konnte nicht abgeschlossen werden.')
+    },
   }
 }
 
-function identityPriority(candidate: FoodCandidate) {
-  if (candidate.kind === 'branded' && candidate.source === 'open_food_facts') return 50
-  if (candidate.source === 'bls') return 40
-  if (candidate.source === 'usda') return 30
-  return 10
+function parseLoadResult(value: unknown): CatalogRecordLoadResult {
+  if (!isRecord(value) || typeof value.foodId !== 'string' || typeof value.foodCreated !== 'boolean') {
+    throw new Error('Loader lieferte kein gültiges Ergebnis.')
+  }
+  return {
+    foodId: value.foodId,
+    foodCreated: value.foodCreated,
+    sourceRecordsUpserted: readNonNegativeInteger(value.sourceRecordsUpserted),
+    identityMappingsUpserted: readNonNegativeInteger(value.identityMappingsUpserted),
+    nutrientObservationsUpserted: readNonNegativeInteger(value.nutrientObservationsUpserted),
+    canonicalNutrientsUpserted: readNonNegativeInteger(value.canonicalNutrientsUpserted),
+    portionsUpserted: readNonNegativeInteger(value.portionsUpserted),
+    qualityFlagsUpserted: readNonNegativeInteger(value.qualityFlagsUpserted),
+  }
+}
+
+function readNonNegativeInteger(value: unknown) {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : 0
+}
+
+function formatSupabaseError(error: { code?: string; message?: string } | null, fallback: string) {
+  if (!error) return new Error(fallback)
+  return new Error(`${fallback} ${error.code ? `[${error.code}] ` : ''}${error.message ?? ''}`.trim())
 }
 
 function observation(

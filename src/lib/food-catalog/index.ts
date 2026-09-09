@@ -1,4 +1,6 @@
 export * from './merge.ts'
+export * from './import-record.ts'
+export * from './loader.ts'
 export * from './normalize.ts'
 export * from './quality.ts'
 export * from './ranking.ts'

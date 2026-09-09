@@ -39,6 +39,7 @@ interface NutrientRow {
 
 interface FoodRow {
   id: string
+  dedupe_key: string | null
   kind: 'generic' | 'branded' | 'recipe'
   name_de: string
   name_en: string | null
@@ -110,6 +111,10 @@ export interface Database {
       search_foods: {
         Args: { search_query: string; result_limit?: number }
         Returns: Array<Record<string, unknown>>
+      }
+      import_food_catalog_record: {
+        Args: { p_run_id: string; p_dedupe_key: string; p_record: Json }
+        Returns: Json
       }
     }
     Enums: Record<string, never>
