@@ -34,5 +34,6 @@ describe('onboardingInputSchema', () => {
     const row = { id: 'row-1', user_id: 'user-1', created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z', deleted_at: null }
     expect(() => parseRemoteRecord(row, 'user-2')).toThrow('Cloud-Datensatz')
     expect(() => parseRemoteRecord({ ...row, updated_at: 'not-a-date' }, 'user-1')).toThrow()
+    expect(parseRemoteRecord({ ...row, created_at: '2026-01-01T00:00:00+00:00' }, 'user-1')).toMatchObject({ id: 'row-1' })
   })
 })

@@ -6,13 +6,15 @@ export const sexSchema = z.enum(['male', 'female'])
 export const activityLevelSchema = z.enum(['low', 'light', 'moderate', 'high', 'athlete'])
 export const bodyFatCategorySchema = z.enum(['very_low', 'athletic', 'fit', 'average', 'high'])
 
+const remoteTimestampSchema = z.string().refine((value) => Number.isFinite(Date.parse(value)), 'Ungültiger Zeitstempel')
+
 const remoteRecordSchema = z
   .object({
     id: z.string().min(1),
     user_id: z.string().min(1),
-    created_at: z.string().datetime(),
-    updated_at: z.string().datetime(),
-    deleted_at: z.string().datetime().nullable(),
+    created_at: remoteTimestampSchema,
+    updated_at: remoteTimestampSchema,
+    deleted_at: remoteTimestampSchema.nullable(),
   })
   .passthrough()
 
