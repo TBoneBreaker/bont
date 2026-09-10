@@ -32,14 +32,14 @@ export default async function handler(request: RequestLike, response: ResponseLi
     return
   }
 
-  const supabaseUrl = process.env.VITE_SUPABASE_URL
-  const publishableKey = process.env.VITE_SUPABASE_PUBLISHABLE_KEY
-  if (!supabaseUrl || !publishableKey) {
+  const supabaseUrl = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (!supabaseUrl || !serviceRoleKey) {
     response.status(503).json({ error: 'Die Lebensmitteldatenbank ist noch nicht konfiguriert.' })
     return
   }
 
-  const supabase = createClient(supabaseUrl, publishableKey, {
+  const supabase = createClient(supabaseUrl, serviceRoleKey, {
     auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false },
   })
   const { data, error } = await supabase.rpc('search_foods', {

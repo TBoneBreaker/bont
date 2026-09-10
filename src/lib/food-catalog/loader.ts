@@ -1,4 +1,4 @@
-import type { CatalogSource, NutrientDefinitionMetadata } from './types.ts'
+import type { CatalogSource, FoodIdentity, FoodPortionCandidate, NutrientDefinitionMetadata } from './types.ts'
 import { validateCanonicalImportRecord, type CanonicalImportRecord } from './import-record.ts'
 
 export type ImportRunStatus = 'running' | 'validated' | 'loaded' | 'failed' | 'rolled_back'
@@ -33,6 +33,16 @@ export interface CatalogImportDatabase {
     metadata: Record<string, unknown>
   }): Promise<string>
   ensureNutrientDefinitions?(definitions: NutrientDefinitionMetadata[]): Promise<void>
+  syncFoodMetadata?(input: {
+    foodId: string
+    identity: Omit<FoodIdentity, 'nutrients' | 'source' | 'sourceRecordId' | 'portions' | 'rawPayload'>
+    portions: FoodPortionCandidate[]
+  }): Promise<void>
+  syncFoodMetadataBatch?(inputs: Array<{
+    foodId: string
+    identity: Omit<FoodIdentity, 'nutrients' | 'source' | 'sourceRecordId' | 'portions' | 'rawPayload'>
+    portions: FoodPortionCandidate[]
+  }>): Promise<void>
   loadRecord(runId: string, record: CanonicalImportRecord): Promise<CatalogRecordLoadResult>
   loadRecords?(runId: string, records: CanonicalImportRecord[]): Promise<CatalogBatchLoadResult[]>
   finishRun(input: {
@@ -137,11 +147,39 @@ export async function loadCatalogRecords(
       try {
         const results = await database.loadRecords(runId, batch)
         if (results.length !== batch.length) throw new Error('Batch-Loader lieferte eine unerwartete Ergebnisanzahl.')
+        const metadataItems: Array<{
+          record: CanonicalImportRecord
+          loaded: CatalogRecordLoadResult
+        }> = []
         for (const [index, item] of results.entries()) {
           const record = batch[index]
           if (!record) continue
-          if (item.result) addLoadCounts(counts, item.result)
+          if (item.result) {
+            addLoadCounts(counts, item.result)
+            metadataItems.push({ record, loaded: item.result })
+          }
           else addRecordError(errors, record, item.error ?? 'Datensatz konnte nicht geladen werden.')
+        }
+        if (database.syncFoodMetadataBatch && metadataItems.length > 0) {
+          try {
+            await database.syncFoodMetadataBatch(
+              metadataItems.map(({ record, loaded }) => ({
+                foodId: loaded.foodId,
+                identity: record.identity,
+                portions: record.portions,
+              })),
+            )
+          } catch (error) {
+            for (const { record } of metadataItems) addRecordError(errors, record, error)
+          }
+        } else if (database.syncFoodMetadata) {
+          for (const { record, loaded } of metadataItems) {
+            try {
+              await database.syncFoodMetadata({ foodId: loaded.foodId, identity: record.identity, portions: record.portions })
+            } catch (error) {
+              addRecordError(errors, record, error)
+            }
+          }
         }
       } catch (error) {
         for (const record of batch) addRecordError(errors, record, error)
@@ -150,7 +188,11 @@ export async function loadCatalogRecords(
   } else {
     for (const record of validRecords) {
       try {
-        addLoadCounts(counts, await database.loadRecord(runId, record))
+        const loaded = await database.loadRecord(runId, record)
+        addLoadCounts(counts, loaded)
+        if (database.syncFoodMetadata) {
+          await database.syncFoodMetadata({ foodId: loaded.foodId, identity: record.identity, portions: record.portions })
+        }
       } catch (error) {
         addRecordError(errors, record, error)
       }

@@ -7,6 +7,27 @@ export type NutrientValueStatus =
   'measured' | 'declared' | 'calculated' | 'estimated' | 'trace' | 'below_limit' | 'logical_zero' | 'unknown'
 
 export type NutrientObservationRole = 'primary' | 'declared' | 'reference'
+export type PortionType =
+  | 'whole_fruit'
+  | 'whole_vegetable'
+  | 'egg'
+  | 'bread_slice'
+  | 'toast_slice'
+  | 'crispbread'
+  | 'cheese_slice'
+  | 'deli_slice'
+  | 'bar'
+  | 'cup'
+  | 'package'
+  | 'can'
+  | 'bottle'
+  | 'spoonable'
+  | 'tortilla'
+  | 'roll'
+  | 'piece'
+  | 'serving'
+
+export type PortionExactness = 'exact' | 'estimated'
 
 export interface NutrientDefinitionMetadata {
   canonicalKey: string
@@ -99,6 +120,11 @@ export interface FoodPortionCandidate {
   unit: CatalogBasisUnit | 'piece'
   grams?: number | null
   confidence: number
+  portionType?: PortionType
+  exactness?: PortionExactness
+  source?: CatalogSource
+  sourceRecordId?: string
+  isDefault?: boolean
 }
 
 export interface SelectedNutrientsResult {

@@ -1,6 +1,7 @@
 import { calculateCoverage, checkFoodCandidate, type QualityFlag } from './quality.ts'
 import { selectCanonicalNutrients } from './merge.ts'
 import { nutrientDefinitionMetadata, nutrientDefinitions as sourceNutrientDefinitions } from './source-mappings.ts'
+import { normalizeFoodIdentity } from './normalize.ts'
 import type {
   CatalogSource,
   FoodCandidate,
@@ -187,6 +188,7 @@ function buildIdentityMappings(candidates: FoodCandidate[], explicitMappings: Fo
       const right = candidates[rightIndex]
       if (left.source === right.source || left.kind !== right.kind) continue
       if (left.kind !== 'generic' || left.preparationState !== right.preparationState) continue
+      if (normalizeFoodIdentity(left.nameDe) !== normalizeFoodIdentity(right.nameDe)) continue
       const key = mappingKey(left.source, left.sourceRecordId, right.source, right.sourceRecordId)
       if (result.has(key)) continue
       result.set(key, {

@@ -4,6 +4,7 @@ import { once } from 'node:events'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import { createInterface } from 'node:readline'
+import { fileURLToPath } from 'node:url'
 import { createGunzip } from 'node:zlib'
 import { unzipSync, strFromU8 } from 'fflate'
 import { createClient } from '@supabase/supabase-js'
@@ -265,7 +266,7 @@ async function parseSource(options: ImportOptions): Promise<FoodCandidate[]> {
   return parseOpenFoodFacts(options.input, options.countries)
 }
 
-async function parseBlsWorkbook(input: string): Promise<FoodCandidate[]> {
+export async function parseBlsWorkbook(input: string): Promise<FoodCandidate[]> {
   const rows = await readXlsxRows(input)
   const headerIndex = rows.findIndex((row) =>
     row.some((cell) => /lebensmittel|food description|bezeichnung/i.test(cell)),
@@ -308,9 +309,11 @@ async function parseBlsWorkbook(input: string): Promise<FoodCandidate[]> {
       nameDe,
       nameEn: null,
       normalizedName: normalizeSearchText(nameDe),
+      aliases: foodAliases(nameDe),
       kind: 'generic',
       preparationState: inferPreparationState(nameDe),
       countryCode: 'DE',
+      category: 'BLS 4.0',
       source: 'bls',
       sourceRecordId,
       nutrients,
@@ -562,7 +565,7 @@ function findColumn(header: string[], pattern: RegExp, fallback: number) {
   return index >= 0 ? index : fallback
 }
 
-async function parseUsdaJson(input: string): Promise<FoodCandidate[]> {
+export async function parseUsdaJson(input: string): Promise<FoodCandidate[]> {
   const payload = JSON.parse(await readFile(input, 'utf8')) as JsonRecord | JsonRecord[]
   const foods = Array.isArray(payload)
     ? payload
@@ -575,6 +578,17 @@ async function parseUsdaJson(input: string): Promise<FoodCandidate[]> {
     const name = cleanString(food.description) ?? cleanString(food.lowercaseDescription) ?? ''
     if (!sourceRecordId || !name) return []
     const branded = Boolean(cleanString(food.brandOwner) || cleanString(food.brandName))
+    const dataType = cleanString(food.dataType) ?? ''
+    const isSurveyFood = /survey|fndds/i.test(dataType)
+    const hasIngredients = Array.isArray(food.inputFoods) && food.inputFoods.length > 0
+    const kind = isSurveyFood && (hasIngredients || /mixed dish|sandwich|pizza|pasta dish|soup|stew|dessert/i.test(name))
+      ? 'recipe'
+      : branded
+        ? 'branded'
+        : 'generic'
+    const category =
+      (isRecord(food.foodCategory) ? cleanString(food.foodCategory.description) : null) ??
+      (isRecord(food.wweiaFoodCategory) ? cleanString(food.wweiaFoodCategory.description) : null)
     const nutrients = Array.isArray(food.foodNutrients)
       ? food.foodNutrients.flatMap((nutrient) => {
           const nutrientObject = isRecord(nutrient.nutrient) ? nutrient.nutrient : nutrient
@@ -618,15 +632,17 @@ async function parseUsdaJson(input: string): Promise<FoodCandidate[]> {
         nameDe: name,
         nameEn: null,
         normalizedName: normalizeSearchText(name),
+        aliases: foodAliases(name),
         brand: cleanString(food.brandName) ?? cleanString(food.brandOwner),
         manufacturer: cleanString(food.brandOwner),
-        kind: branded ? 'branded' : 'generic',
+        kind,
         preparationState: inferPreparationState(name),
         countryCode: branded ? null : 'US',
+        category,
         source: 'usda',
         sourceRecordId,
         nutrients,
-        portions: usdaPortions(food),
+        portions: usdaPortions(food, name, sourceRecordId),
         sourceUpdatedAt: cleanString(food.publicationDate),
         rawPayload: food,
       } satisfies FoodCandidate,
@@ -634,7 +650,7 @@ async function parseUsdaJson(input: string): Promise<FoodCandidate[]> {
   })
 }
 
-function usdaPortions(food: JsonRecord): FoodPortionCandidate[] {
+function usdaPortions(food: JsonRecord, foodName: string, sourceRecordId: string): FoodPortionCandidate[] {
   if (Array.isArray(food.foodPortions)) {
     const portions = food.foodPortions.flatMap((portion) => {
       if (!isRecord(portion)) return []
@@ -648,13 +664,22 @@ function usdaPortions(food: JsonRecord): FoodPortionCandidate[] {
         ]
           .filter(Boolean)
           .join(' ')
+      if (!description || /undetermined|quantity not specified/i.test(description)) return []
+      const amount = parsePortionAmount(portion, description)
+      const portionType = classifyPortionType(foodName, description)
+      const perUnitGrams = grams / amount
+      const unitLabel = localizePortionDescription(description, portionType)
       return [
         {
-          labelDe: description ? `${description} (${grams} g)` : `Portion (${grams} g)`,
-          amount: grams,
-          unit: 'g' as const,
-          grams,
+          labelDe: `${unitLabel} (~${formatWeight(grams)} g)`,
+          amount,
+          unit: 'piece' as const,
+          grams: perUnitGrams,
           confidence: 0.9,
+          portionType,
+          exactness: 'estimated' as const,
+          source: 'usda' as const,
+          sourceRecordId,
         },
       ]
     })
@@ -664,8 +689,70 @@ function usdaPortions(food: JsonRecord): FoodPortionCandidate[] {
   const unit = cleanString(food.servingSizeUnit)?.toLowerCase() as 'g' | 'ml' | undefined
   if (amount === null || amount <= 0 || (unit !== 'g' && unit !== 'ml')) return []
   return [
-    { labelDe: `Portion (${amount} ${unit})`, amount, unit, grams: unit === 'g' ? amount : null, confidence: 0.95 },
+    {
+      labelDe: `Portion (~${formatWeight(amount)} ${unit})`,
+      amount,
+      unit,
+      grams: unit === 'g' ? amount : null,
+      confidence: 0.9,
+      portionType: 'serving',
+      exactness: 'estimated',
+      source: 'usda',
+      sourceRecordId,
+    },
   ]
+}
+
+function parsePortionAmount(portion: JsonRecord, description: string) {
+  const explicit = parseNullableNumber(portion.amount ?? portion.value)
+  if (explicit !== null && explicit > 0) return explicit
+  const match = description.match(/^\s*(\d+(?:[.,]\d+)?)/)
+  const parsed = match ? parseNullableNumber(match[1]) : null
+  return parsed !== null && parsed > 0 ? parsed : 1
+}
+
+function formatWeight(value: number) {
+  return Number.isInteger(value) ? String(value) : value.toFixed(1).replace(/\.0$/, '')
+}
+
+function classifyPortionType(foodName: string, description: string): import('../src/lib/food-catalog/types.ts').PortionType {
+  const text = `${foodName} ${description}`.toLocaleLowerCase('de-DE')
+  if (/egg|ei\b|eier\b/.test(text)) return 'egg'
+  if (/toast/.test(text)) return 'toast_slice'
+  if (/bread|brot|slice|scheibe/.test(text) && /toast|bread|brot/i.test(foodName)) return 'bread_slice'
+  if (/cheese|käse|kaese|gouda|mozzarella/.test(text) && /slice|scheibe/.test(text)) return 'cheese_slice'
+  if (/apple|apfel|banana|banane|orange|mandarin|kiwi|pear|birne|peach|pfirsich|plum|pflaume|avocado|mango/.test(text))
+    return 'whole_fruit'
+  if (/tomato|tomate|pepper|paprika|cucumber|gurke|onion|zwiebel|carrot|karotte|potato|kartoffel/.test(text))
+    return 'whole_vegetable'
+  if (/bar|riegel/.test(text)) return 'bar'
+  if (/cup|becher|container/.test(text)) return 'cup'
+  if (/can|dose/.test(text)) return 'can'
+  if (/bottle|flasche/.test(text)) return 'bottle'
+  if (/tablespoon|teaspoon|esslöffel|teelöffel|tbsp|tsp/.test(text)) return 'spoonable'
+  if (/roll|brötchen|semmel/.test(text)) return 'roll'
+  if (/tortilla|wrap/.test(text)) return 'tortilla'
+  return 'serving'
+}
+
+function localizePortionDescription(description: string, type: import('../src/lib/food-catalog/types.ts').PortionType) {
+  const unitTranslations: Array<[RegExp, string]> = [
+    [/tablespoons?|tbsp/, 'EL'],
+    [/teaspoons?|tsp/, 'TL'],
+    [/cups?/, 'Tasse'],
+    [/slices?/, 'Scheibe'],
+    [/ounces?|oz/, 'oz'],
+    [/fluid ounces?|fl oz/, 'fl oz'],
+    [/large/, 'groß'],
+    [/medium|med/, 'mittelgroß'],
+    [/small/, 'klein'],
+    [/servings?/, 'Portion'],
+  ]
+  let result = description
+  for (const [pattern, replacement] of unitTranslations) result = result.replace(pattern, replacement)
+  result = result.replace(/\beggs?\b/gi, 'Ei').replace(/\bbananas?\b/gi, 'Banane')
+  if (type === 'egg' && /^\s*\d+(?:[.,]\d+)?\s*$/.test(result)) result = `${result} Ei`
+  return result.trim()
 }
 
 function dynamicUsdaNutrientDefinition(nutrient: JsonRecord): NutrientDefinitionMetadata | null {
@@ -710,26 +797,25 @@ function inferUsdaNutrientGroup(name: string) {
   return 'other'
 }
 
-async function parseOpenFoodFacts(input: string, countries: string[]): Promise<FoodCandidate[]> {
+export async function parseOpenFoodFacts(input: string, countries: string[]): Promise<FoodCandidate[]> {
   const candidates: FoodCandidate[] = []
   const stream = input.toLowerCase().endsWith('.gz')
     ? createReadStream(input).pipe(createGunzip())
     : createReadStream(input, { encoding: 'utf8' })
-  const lines = createInterface({ input: stream, crlfDelay: Infinity })
   let firstNonEmpty = ''
   let csvHeaders: string[] | null = null
   let csvIndexes: Map<string, number> | null = null
-  for await (const line of lines) {
-    const trimmed = line.trim()
+  for await (const record of readLogicalRecords(stream)) {
+    const trimmed = record.trim()
     if (!trimmed) continue
     if (!firstNonEmpty) firstNonEmpty = trimmed[0]
     if (!csvHeaders && !trimmed.startsWith('{') && !trimmed.startsWith('[')) {
-      csvHeaders = parseDelimitedLine(line, '\t')
+      csvHeaders = parseDelimitedLine(record, '\t')
       csvIndexes = new Map(csvHeaders.map((header, index) => [header, index]))
       continue
     }
     if (csvHeaders) {
-      const fields = parseDelimitedLine(line, '\t')
+      const fields = parseDelimitedLine(record, '\t')
       const product = openFoodFactsCsvProduct(csvHeaders, csvIndexes ?? new Map(), fields)
       if (product) candidates.push(...parseOffProduct(product, countries))
       continue
@@ -754,6 +840,32 @@ async function parseOpenFoodFacts(input: string, countries: string[]): Promise<F
   }
   if (!firstNonEmpty) return []
   return candidates
+}
+
+async function* readLogicalRecords(stream: NodeJS.ReadableStream) {
+  const lines = createInterface({ input: stream, crlfDelay: Infinity })
+  let buffer = ''
+  for await (const line of lines) {
+    buffer = buffer ? `${buffer}\n${line}` : line
+    if (csvHasClosedQuotes(buffer)) {
+      yield buffer
+      buffer = ''
+    }
+  }
+  if (buffer) yield buffer
+}
+
+function csvHasClosedQuotes(value: string) {
+  let quoted = false
+  for (let index = 0; index < value.length; index += 1) {
+    if (value[index] !== '"') continue
+    if (quoted && value[index + 1] === '"') {
+      index += 1
+      continue
+    }
+    quoted = !quoted
+  }
+  return !quoted
 }
 
 function parseDelimitedLine(line: string, delimiter: string) {
@@ -799,16 +911,28 @@ function openFoodFactsCsvProduct(headers: string[], indexes: Map<string, number>
     code,
     product_name: productName,
     product_name_de: productNameDe,
+    generic_name: value('generic_name'),
+    generic_name_de: value('generic_name_de'),
     brands: value('brands'),
+    brand_owner: value('brand_owner'),
+    manufacturer: value('manufacturing_places'),
     quantity: value('quantity'),
+    product_quantity: value('product_quantity'),
+    product_quantity_unit: value('product_quantity_unit'),
     categories: value('categories'),
+    categories_tags: (value('categories_tags') ?? '').split(',').map((tag) => tag.trim()).filter(Boolean),
     languages: value('languages'),
+    lang: value('lang'),
     countries: value('countries'),
     countries_tags: (value('countries_tags') ?? '')
       .split(',')
       .map((tag) => tag.trim())
       .filter(Boolean),
     serving_quantity: value('serving_quantity'),
+    serving_size: value('serving_size'),
+    serving_quantity_unit: value('serving_quantity_unit'),
+    packaging: value('packaging'),
+    packaging_tags: (value('packaging_tags') ?? '').split(',').map((tag) => tag.trim()).filter(Boolean),
     last_modified_t: value('last_modified_t'),
     nutriments,
   }
@@ -817,19 +941,28 @@ function openFoodFactsCsvProduct(headers: string[], indexes: Map<string, number>
 function parseOffProduct(product: JsonRecord, countries: string[]): FoodCandidate[] {
   if (!offProductMatchesCountry(product, countries)) return []
   const sourceRecordId = cleanString(product.code) ?? ''
-  const name = cleanString(product.product_name_de) ?? cleanString(product.product_name) ?? ''
+  const productNameDe = cleanString(product.product_name_de)
+  const languages = cleanString(product.languages) ?? cleanString(product.lang) ?? ''
+  if (!productNameDe && !/\b(de|german|deutsch)\b/i.test(languages)) return []
+  const name =
+    productNameDe ??
+    cleanString(product.product_name) ??
+    cleanString(product.generic_name_de) ??
+    cleanString(product.generic_name) ??
+    ''
   if (!sourceRecordId || !name) return []
   const barcode = normalizeBarcode(sourceRecordId)
   if (!barcode) return []
   const brand = cleanString(product.brands)
   if (!brand) return []
   const nutriments = isRecord(product.nutriments) ? product.nutriments : {}
-  const basisUnit = parseNullableNumber(nutriments['energy-kcal_100ml']) !== null ? 'ml' : 'g'
+  const basisUnit = offBasisUnit(nutriments)
   const nutrients = nutrientDefinitions.flatMap((definition) => {
     const key = offNutrientKey(definition.key)
-    const value = parseNullableNumber(nutriments[`${key}_100${basisUnit}`])
+    const valueData = offNutrientValue(nutriments, key, basisUnit, definition.key)
+    const value = valueData?.value ?? null
     if (value === null || value < 0) return []
-    const sourceUnit = cleanString(nutriments[`${key}_unit`]) ?? definition.unit
+    const sourceUnit = valueData?.unit ?? definition.unit
     try {
       return [
         observation({
@@ -855,19 +988,25 @@ function parseOffProduct(product: JsonRecord, countries: string[]): FoodCandidat
     {
       id: `off-${sourceRecordId}`,
       nameDe: name,
-      nameEn: cleanString(product.product_name),
+      nameEn: cleanString(product.product_name) ?? cleanString(product.generic_name),
       normalizedName: normalizeSearchText(name),
+      aliases: [cleanString(product.generic_name_de), cleanString(product.generic_name)]
+        .filter((alias): alias is string => Boolean(alias))
+        .concat(foodAliases(name)),
       brand,
-      manufacturer: brand,
+      manufacturer: cleanString(product.manufacturer) ?? cleanString(product.brand_owner) ?? brand,
       gtin: barcode,
       kind: 'branded',
       preparationState: inferPreparationState(name),
       countryCode: 'DE',
+      category:
+        (Array.isArray(product.categories_tags) ? cleanString(product.categories_tags[0]) : null) ??
+        cleanString(product.categories),
       source: 'open_food_facts',
       sourceRecordId,
       sourceUpdatedAt: offSourceUpdatedAt(product.last_modified_t),
       nutrients,
-      portions: offPortion(product, basisUnit),
+      portions: offPortion(product, basisUnit, sourceRecordId, name),
       rawPayload: {
         ...product,
         _bontSource: 'Open Food Facts',
@@ -923,18 +1062,111 @@ function offNutrientKey(key: string) {
   return aliases[key] ?? key
 }
 
-function offPortion(product: JsonRecord, basisUnit: 'g' | 'ml'): FoodPortionCandidate[] {
-  const amount = parseNullableNumber(product.serving_quantity)
-  if (amount === null || amount <= 0) return []
-  return [
-    {
-      labelDe: `Portion (${amount} ${basisUnit})`,
-      amount,
-      unit: basisUnit,
-      grams: basisUnit === 'g' ? amount : null,
+function offBasisUnit(nutriments: JsonRecord): 'g' | 'ml' {
+  const has100g = Object.keys(nutriments).some((key) => key.endsWith('_100g'))
+  const has100ml = Object.keys(nutriments).some((key) => key.endsWith('_100ml'))
+  return has100g || !has100ml ? 'g' : 'ml'
+}
+
+function offNutrientValue(nutriments: JsonRecord, key: string, basisUnit: 'g' | 'ml', definitionKey: string) {
+  const suffix = `_100${basisUnit}`
+  const direct = parseNullableNumber(nutriments[`${key}${suffix}`])
+  if (direct !== null) {
+    const explicitUnit = cleanString(nutriments[`${key}_unit`])
+    return { value: direct, unit: explicitUnit ?? (definitionKey === 'energy_kcal' ? 'kcal' : undefined) }
+  }
+  if (definitionKey === 'energy_kcal') {
+    const kilojoules = parseNullableNumber(nutriments[`energy-kj${suffix}`])
+    if (kilojoules !== null) return { value: kilojoules, unit: 'kJ' }
+  }
+  return null
+}
+
+function offPortion(product: JsonRecord, basisUnit: 'g' | 'ml', sourceRecordId: string, foodName: string) {
+  const portions: FoodPortionCandidate[] = []
+  const servingAmount = parseNullableNumber(product.serving_quantity)
+  const servingUnit = normalizePortionUnit(product.serving_quantity_unit) ?? basisUnit
+  if (servingAmount !== null && servingAmount > 0) {
+    const portionType = classifyPortionType(foodName, cleanString(product.serving_size) ?? '')
+    portions.push({
+      labelDe: `Portion (${formatWeight(servingAmount)} ${servingUnit})`,
+      amount: servingAmount,
+      unit: servingUnit,
+      grams: servingUnit === 'g' ? servingAmount : null,
+      confidence: 0.98,
+      portionType,
+      exactness: 'exact',
+      source: 'open_food_facts',
+      sourceRecordId,
+      isDefault: true,
+    })
+  }
+
+  const packageSpec = parseOffQuantity(product)
+  if (packageSpec) {
+    const packageType = classifyPortionType(foodName, `${cleanString(product.packaging) ?? ''} ${packageSpec.raw}`)
+    portions.push({
+      labelDe: `1 Packung (${formatWeight(packageSpec.amount)} ${packageSpec.unit})`,
+      amount: 1,
+      unit: 'piece',
+      grams: packageSpec.unit === 'g' ? packageSpec.amount : null,
       confidence: 0.95,
-    },
-  ]
+      portionType: packageType === 'can' ? 'can' : packageType === 'bottle' ? 'bottle' : 'package',
+      exactness: 'exact',
+      source: 'open_food_facts',
+      sourceRecordId,
+    })
+  }
+
+  const multiPack = parseOffMultiPack(product)
+  if (multiPack) {
+    const type = classifyPortionType(foodName, `${cleanString(product.packaging) ?? ''} ${multiPack.raw}`)
+    portions.push({
+      labelDe: `${multiPack.count} Stück (${formatWeight(multiPack.each)} ${multiPack.unit})`,
+      amount: multiPack.count,
+      unit: 'piece',
+      grams: multiPack.unit === 'g' ? multiPack.each : null,
+      confidence: 0.94,
+      portionType: type === 'bread_slice' || type === 'cheese_slice' || type === 'bar' ? type : 'piece',
+      exactness: 'exact',
+      source: 'open_food_facts',
+      sourceRecordId,
+    })
+  }
+  return portions
+}
+
+function normalizePortionUnit(value: unknown): 'g' | 'ml' | null {
+  const normalized = cleanString(value)?.toLocaleLowerCase('de-DE') ?? ''
+  if (/^g(ram|rams|ramme)?$/.test(normalized)) return 'g'
+  if (/^kg$/.test(normalized)) return 'g'
+  if (/^ml$|^milliliter/.test(normalized)) return 'ml'
+  if (/^l(itre|iter)?$/.test(normalized)) return 'ml'
+  return null
+}
+
+function parseOffQuantity(product: JsonRecord) {
+  const raw = cleanString(product.product_quantity) ?? cleanString(product.quantity)
+  const direct = raw?.match(/(\d+(?:[.,]\d+)?)\s*(kg|g|l|ml)\b/i)
+  if (!direct) return null
+  const amount = parseNullableNumber(direct[1])
+  if (amount === null || amount <= 0) return null
+  const unit = direct[2].toLowerCase() === 'kg' ? 'g' : direct[2].toLowerCase() === 'l' ? 'ml' : (direct[2].toLowerCase() as 'g' | 'ml')
+  const normalizedAmount = direct[2].toLowerCase() === 'kg' ? amount * 1000 : direct[2].toLowerCase() === 'l' ? amount * 1000 : amount
+  return { amount: normalizedAmount, unit, raw }
+}
+
+function parseOffMultiPack(product: JsonRecord) {
+  const raw = [cleanString(product.quantity), cleanString(product.product_quantity)].filter(Boolean).join(' ')
+  const match = raw.match(/(\d+)\s*[x×]\s*(\d+(?:[.,]\d+)?)\s*(kg|g|l|ml)\b/i)
+  if (!match) return null
+  const count = parseNullableNumber(match[1])
+  const eachRaw = parseNullableNumber(match[2])
+  if (count === null || count <= 0 || eachRaw === null || eachRaw <= 0) return null
+  const rawUnit = match[3].toLowerCase()
+  const unit = rawUnit === 'kg' || rawUnit === 'l' ? (rawUnit === 'kg' ? 'g' : 'ml') : (rawUnit as 'g' | 'ml')
+  const each = rawUnit === 'kg' || rawUnit === 'l' ? eachRaw * 1000 : eachRaw
+  return { count, each, unit, raw }
 }
 
 function createSupabaseImportDatabase(): CatalogImportDatabase {
@@ -997,6 +1229,30 @@ function createSupabaseImportDatabase(): CatalogImportDatabase {
       })
       if (error) throw formatSupabaseError(error, 'Batch von Food-Datensätzen konnte nicht geladen werden.')
       return parseBatchLoadResults(data)
+    },
+
+    async syncFoodMetadata(input) {
+      const { error } = await supabase.rpc('sync_food_catalog_metadata', {
+        p_food_id: input.foodId,
+        p_identity: { aliases: input.identity.aliases ?? [] },
+        p_portions: input.portions,
+      })
+      if (error) throw formatSupabaseError(error, `Metadaten für Food ${input.foodId} konnten nicht synchronisiert werden.`)
+    },
+
+    async syncFoodMetadataBatch(inputs) {
+      const { data, error } = await supabase.rpc('sync_food_catalog_metadata_batch', {
+        p_items: inputs.map((input) => ({
+          foodId: input.foodId,
+          identity: { aliases: input.identity.aliases ?? [] },
+          portions: input.portions,
+        })),
+      })
+      if (error) throw formatSupabaseError(error, 'Food-Metadaten konnten im Batch nicht synchronisiert werden.')
+      if (!Array.isArray(data) || data.some((item) => isRecord(item) && item.ok === false)) {
+        const failed = Array.isArray(data) ? data.filter((item) => isRecord(item) && item.ok === false).length : inputs.length
+        throw new Error(`Food-Metadaten-Batch enthält ${failed} fehlerhafte Datensätze.`)
+      }
     },
 
     async finishRun(input) {
@@ -1086,6 +1342,31 @@ function inferPreparationState(name: string) {
   return 'unknown' as const
 }
 
+function foodAliases(name: string) {
+  const normalized = normalizeSearchText(name)
+  const aliases = new Set<string>()
+  for (const variant of foodSearchVariantsForName(normalized)) aliases.add(variant)
+  if (/(?:huhn|huehn|hühn)ei(?:er)?\b/i.test(name)) aliases.add('Ei')
+  const firstToken = normalized.split(' ')[0] ?? ''
+  if (['kartoffel', 'kartoffeln'].includes(firstToken)) aliases.add('Kartoffel')
+  if (['apfel', 'aepfel'].includes(firstToken)) aliases.add('Apfel')
+  if (firstToken === 'banane') aliases.add('Banane')
+  if (firstToken === 'tomate' || firstToken === 'tomaten') aliases.add('Tomate')
+  return [...aliases].filter((alias) => normalizeSearchText(alias) !== normalized)
+}
+
+function foodSearchVariantsForName(normalized: string) {
+  const words = normalized.split(' ').filter(Boolean)
+  const first = words[0] ?? ''
+  const variants: string[] = []
+  if (first === 'eier') variants.push('Ei')
+  if (first === 'aepfel') variants.push('Apfel')
+  if (first === 'kartoffeln') variants.push('Kartoffel')
+  if (first === 'nudeln') variants.push('Nudel')
+  if (first === 'tomaten') variants.push('Tomate')
+  return variants
+}
+
 function parseSharedStrings(value: Uint8Array | undefined) {
   if (!value) return []
   return [...strFromU8(value).matchAll(/<si\b[\s\S]*?<\/si>/g)].map((match) => xmlText(match[0]))
@@ -1140,4 +1421,8 @@ function isRecord(value: unknown): value is JsonRecord {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
 
-await main()
+export { parseSource, resolveCoverageGroups, createSupabaseImportDatabase }
+
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+  await main()
+}

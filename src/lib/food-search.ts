@@ -7,6 +7,10 @@ export interface FoodPortion {
   amount: number
   unit: 'g' | 'ml' | 'piece'
   grams: number | null
+  portionType?: string
+  exactness?: 'exact' | 'estimated'
+  source?: string | null
+  isDefault?: boolean
 }
 
 export interface FoodSearchResult {
@@ -56,7 +60,16 @@ interface CatalogSearchResponse {
     source_record_id?: string | null
     nutrient_coverage?: number | null
     micronutrients?: Record<string, NutrientApiValue>
-    portions?: Array<{ label?: string; amount?: number; unit?: 'g' | 'ml' | 'piece'; grams?: number | null }>
+    portions?: Array<{
+      label?: string
+      amount?: number
+      unit?: 'g' | 'ml' | 'piece'
+      grams?: number | null
+      portionType?: string
+      exactness?: 'exact' | 'estimated'
+      source?: string | null
+      isDefault?: boolean
+    }>
   }>
 }
 
@@ -151,6 +164,10 @@ function normalizePortions(portions: NonNullable<CatalogSearchResponse['foods']>
         amount: portion.amount as number,
         unit: portion.unit,
         grams: isFinitePositive(portion.grams) ? (portion.grams as number) : null,
+        portionType: portion.portionType,
+        exactness: portion.exactness,
+        source: portion.source,
+        isDefault: portion.isDefault,
       },
     ]
   })

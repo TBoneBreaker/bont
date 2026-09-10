@@ -557,6 +557,12 @@ function FoodEditor({
           )}
         </SelectField>
       </div>
+      {selectedProduct && portion?.unit === 'piece' && portion.grams && Number(amount) > 0 && (
+        <p className="field-hint" aria-live="polite">
+          {amount} {portion.portionType === 'egg' ? (Number(amount) === 1 ? 'Ei' : 'Eier') : portion.portionType === 'bread_slice' || portion.portionType === 'toast_slice' || portion.portionType === 'cheese_slice' ? 'Scheiben' : 'Stück'}{' '}
+          = {formatInputNumber(Number(amount) * portion.grams)} g{portion.exactness === 'estimated' ? ' (Näherungswert)' : ''}
+        </p>
+      )}
       <Field
         label="Kalorien für diese Menge"
         type="number"

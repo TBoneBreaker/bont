@@ -9,3 +9,5 @@ coverage/
 screenshots/
 .DS_Store
 
+.vercel
+.env*

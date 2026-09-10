@@ -20,6 +20,36 @@ export function normalizeSearchText(value: string) {
     .replace(/\s+/g, ' ')
 }
 
+const germanFoodQueryVariants: Record<string, string[]> = {
+  ei: ['ei', 'eier', 'hühnerei', 'hühnereier'],
+  eier: ['ei', 'eier', 'hühnerei', 'hühnereier'],
+  apfel: ['apfel', 'äpfel'],
+  äpfel: ['apfel', 'äpfel'],
+  kartoffel: ['kartoffel', 'kartoffeln'],
+  kartoffeln: ['kartoffel', 'kartoffeln'],
+  nudel: ['nudel', 'nudeln', 'pasta'],
+  nudeln: ['nudel', 'nudeln', 'pasta'],
+  tomate: ['tomate', 'tomaten'],
+  tomaten: ['tomate', 'tomaten'],
+  karotte: ['karotte', 'karotten', 'möhre', 'möhren'],
+  karotten: ['karotte', 'karotten', 'möhre', 'möhren'],
+  brotchen: ['brötchen', 'semmel'],
+}
+
+/** Conservative variants for frequent German food queries; no generic stemming. */
+export function foodSearchVariants(value: string) {
+  const normalized = normalizeSearchText(value)
+  const variants = germanFoodQueryVariants[normalized] ?? [normalized]
+  return [...new Set(variants.map(normalizeSearchText).filter(Boolean))]
+}
+
+/** Removes only preparation/packaging noise for safe cross-source identity matching. */
+export function normalizeFoodIdentity(value: string) {
+  const preparationWords = /\b(roh|raw|frisch|fresh|gekocht|cooked|gebraten|fried|gebacken|baked|gedünstet|geduenstet|gedämpft|gedaempft|getrocknet|dried|trocken|dry|mit|ohne|with|without|in|im|als|the|and|und)\b/gu
+  const normalized = normalizeSearchText(value).replace(preparationWords, ' ')
+  return normalized.replace(/\s+/g, ' ').trim()
+}
+
 /** Returns a canonical GTIN-14 or null for malformed/non-checksum-valid codes. */
 export function normalizeBarcode(value: unknown): string | null {
   const digits = typeof value === 'string' || typeof value === 'number' ? String(value).replace(/\D/g, '') : ''
